@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Box, TextField, Button, Typography, Paper } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
@@ -22,32 +22,49 @@ export default function Login() {
 
     let loginEmail = identifier;
 
-    // If phone entered, fetch email
+    // Convert phone → email
     if (!identifier.includes("@")) {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("email")
+        .select("email, name")
         .eq("phone", identifier)
         .single();
 
       if (!profile) {
-        setErrorMessage("Invalid email / phone or password.");
+        setErrorMessage("Invalid email or password.");
         return;
       }
 
       loginEmail = profile.email;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    // Supabase login
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: loginEmail,
       password,
     });
 
     if (error) {
-      setErrorMessage("Invalid email / phone or password.");
+      if (error.message.includes("Email not confirmed")) {
+        setErrorMessage("Please verify your email before logging in.");
+      } else {
+        setErrorMessage("Invalid email / phone or password.");
+      }
       return;
     }
 
+    // Fetch user profile for dashboard
+    const { data: userProfile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("email", loginEmail)
+      .single();
+
+    // Save user session info for Dashboard
+    localStorage.setItem("vf_token", data.session.access_token);
+    localStorage.setItem("vf_user", JSON.stringify(userProfile));
+
+    // Remember me option
     if (remember) {
       localStorage.setItem("rememberIdentifier", identifier);
       localStorage.setItem("rememberPassword", password);
@@ -56,6 +73,7 @@ export default function Login() {
       localStorage.removeItem("rememberPassword");
     }
 
+    // Redirect to dashboard
     navigate("/dashboard");
   };
 
@@ -132,8 +150,6 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-
-          
 
           <Button
             fullWidth

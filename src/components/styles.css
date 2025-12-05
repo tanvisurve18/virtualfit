@@ -1,0 +1,14 @@
+/* styles.css */
+@keyframes floating {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-15px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-floating {
+  animation: floating 3s ease-in-out infinite;
+}
+
+.animate-floating-delay {
+  animation: floating 3s ease-in-out infinite 1.5s;
+}

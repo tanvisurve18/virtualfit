@@ -1,59 +1,55 @@
-import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-
-import VirtualTryOn from "./components/VirtualTryOn";
-import ClothingSelector from "./components/ClothingSelector";
+// App.jsx
+import React from "react";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import HomePage from "./components/HomePage"; // your existing improved HomePage
 import Login from "./components/Login";
-import Signup from "./components/Signup";
-import UserDashboard from "./components/UserDashboard";
-import SignupSuccess from "./components/SignupSuccess";
-import ForgotPassword from "./components/ForgotPassword";
-import ResetPassword from "./components/ResetPassword";
+import Signup from "./components/Signup"; // optional - if you have it
+import Dashboard from "./components/Dashboard";
 
-import "./App.css";
+/**
+ * Simple auth helper using localStorage.
+ * Replace with real auth context / token verification later.
+ */
+const auth = {
+  isAuthenticated: () => !!localStorage.getItem("vf_token"),
+  getUser: () => JSON.parse(localStorage.getItem("vf_user") || "null"),
+};
 
-function App() {
-  const [clothingItems, setClothingItems] = useState([]);
-  const [selectedClothing, setSelectedClothing] = useState(null);
+function ProtectedRoute({ children }) {
+  const location = useLocation();
+  if (!auth.isAuthenticated()) {
+    // Redirect to /login and preserve attempted URL
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+  return children;
+}
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const womensClothingUrl =
-          "https://fakestoreapi.com/products/category/women%27s%20clothing";
-        const mensClothingUrl =
-          "https://fakestoreapi.com/products/category/men%27s%20clothing";
-
-        const [womensResponse, mensResponse] = await Promise.all([
-          fetch(womensClothingUrl),
-          fetch(mensClothingUrl),
-        ]);
-
-        const womensData = await womensResponse.json();
-        const mensData = await mensResponse.json();
-
-        setClothingItems([...womensData, ...mensData]);
-      } catch (error) {
-        console.error("Failed to fetch products:", error);
-      }
-    };
-
-    fetchProducts();
-  }, []);
-
+export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/signup-success" element={<SignupSuccess />} />
-        <Route path="/dashboard" element={<UserDashboard />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/" element={<HomePage />} />
 
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+
+
+        {/* Protected dashboard route */}
+        <Route
+          path="/dashboard/*"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Try-on page route (if present) */}
+        <Route path="/tryon" element={<div style={{padding:40}}>Try-On Page (wire up later)</div>} />
+
+        {/* fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
 }
-
-export default App;
