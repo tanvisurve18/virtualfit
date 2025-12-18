@@ -71,7 +71,7 @@ export default function HomePage() {
       desc: "Jackets, coats & blazers.",
       icon: "🧥",
     },
-    
+    //helloooooo............
   ];
 
   return (
