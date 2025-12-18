@@ -79,11 +79,12 @@ export default function Signup() {
   })();
 
   const phoneValid = (() => {
-    if (!phone) return true; // phone optional-ish; but you can require it by removing this line
-    // Very permissive phone check: digits, +, spaces, hyphens
-    const re = /^[\d+\-\s]{6,20}$/;
+    if (!phone.trim()) return true; // OPTIONAL → valid if empty
+    const re = /^[6-9]\d{9}$/;      // Indian format
     return re.test(phone);
   })();
+
+
 
   const passwordValid = (() => {
     if (!password) return false;
@@ -119,18 +120,18 @@ export default function Signup() {
     try {
       // Supabase sign up (v2 API)
       // This will send a confirmation/verification email based on your Supabase settings.
-      const { data, error } = await supabase.auth.signUp(
-        {
-          email: email.trim(),
-          password: password,
-        },
-        {
-          // optional: set redirect url after verification (change to your app URL)
-          options: {
-            emailRedirectTo: window.location.origin + "/login",
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            phone: phone || null,
           },
+          emailRedirectTo: "http://localhost:5173/login"
         }
-      );
+      });
+
 
       if (error) {
         throw error;
@@ -287,7 +288,11 @@ export default function Signup() {
               onChange={(e) => setPhone(e.target.value)}
               onBlur={() => handleTouch("phone")}
               error={touched.phone && !phoneValid}
-              helperText={touched.phone && !phoneValid ? "Enter a valid phone number" : " "}
+              helperText={
+                touched.phone && !phoneValid
+                  ? "Enter a valid 10-digit Indian phone number (starting with 6–9)."
+                  : " "
+              }
             />
 
             {/* PASSWORD */}
@@ -399,3 +404,4 @@ export default function Signup() {
     </Box>
   );
 }
+  

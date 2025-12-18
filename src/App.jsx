@@ -5,6 +5,8 @@ import HomePage from "./components/HomePage"; // your existing improved HomePage
 import Login from "./components/Login";
 import Signup from "./components/Signup"; // optional - if you have it
 import Dashboard from "./components/Dashboard";
+import TryOn from "./pages/TryOn";
+
 
 /**
  * Simple auth helper using localStorage.
@@ -45,7 +47,7 @@ export default function App() {
         />
 
         {/* Try-on page route (if present) */}
-        <Route path="/tryon" element={<div style={{padding:40}}>Try-On Page (wire up later)</div>} />
+        <Route path="/tryon" element={<TryOn />} />
 
         {/* fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -48,7 +48,7 @@ export default function Login() {
       if (error.message.includes("Email not confirmed")) {
         setErrorMessage("Please verify your email before logging in.");
       } else {
-        setErrorMessage("Invalid email / phone or password.");
+        setErrorMessage("Invalid email or password.");
       }
       return;
     }
