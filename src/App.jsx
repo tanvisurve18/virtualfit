@@ -6,7 +6,7 @@ import Login from "./components/Login";
 import Signup from "./components/Signup"; // optional - if you have it
 import Dashboard from "./components/Dashboard";
 import TryOn from "./pages/TryOn";
-
+import VirtualTryOn from "./components/VirtualTryOn";
 
 /**
  * Simple auth helper using localStorage.
@@ -48,7 +48,7 @@ export default function App() {
 
         {/* Try-on page route (if present) */}
         <Route path="/tryon" element={<TryOn />} />
-
+        <Route path="/tryon" element={<VirtualTryOn />} />
         {/* fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
