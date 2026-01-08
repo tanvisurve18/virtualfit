@@ -27,6 +27,7 @@ import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import ShareIcon from "@mui/icons-material/Share";
 import SearchIcon from "@mui/icons-material/Search";
 import TuneIcon from "@mui/icons-material/Tune";
+import DeleteIcon from "@mui/icons-material/Delete";
 
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
@@ -74,24 +75,28 @@ export default function Dashboard() {
   const [tryOnHistory, setTryOnHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  const [previewImage, setPreviewImage] = useState(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedTryOn, setSelectedTryOn] = useState(null);
+
+
+
     /* -------- Fetch TRYON HISTORY -------- */
   const fetchTryOnHistory = async () => {
-    setLoadingHistory(true);
-
     const { data, error } = await supabase
       .from("tryon_history")
-      .select("*")
+      .select("id, image_url, created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Failed to fetch try-on history:", error);
-    } else {
-      console.log("Try-on history:", data);
-      setTryOnHistory(data || []);
+      console.error("Error fetching try-on history:", error);
+      return;
     }
 
-    setLoadingHistory(false);
+    console.log("Try-on history:", data);
+    setTryOnHistory(data);
   };
+
 /* -------- FALLBACK IMAGES -------- */
   const FALLBACK_IMAGES = useMemo(
     () => [
@@ -148,7 +153,43 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    const fetchTryOnHistory = async () => {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        console.error("No user logged in");
+        return;
+      }
+
+      console.log("Logged in user:", user.id);
+
+      const { data, error } = await supabase
+        .from("tryon_history")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Fetch history error:", error);
+      } else {
+        console.log("Try-on history:", data);
+        setTryOnHistory(data);
+      }
+    };
+
     fetchTryOnHistory();
+  }, []);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      console.log("AUTH USER:", data?.user);
+    };
+
+    checkUser();
   }, []);
 
   /* -------- ACTIONS -------- */
@@ -159,6 +200,44 @@ export default function Dashboard() {
 
   const handleTryOn = (item) => {
     navigate(`/tryon?item=${item.id}`);
+  };
+  const handleDone = () => {
+    stopCamera();
+    navigate('/dashboard?tab=history');
+  };
+
+  const deleteTryOn = async (id, imageUrl) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        alert("User not logged in");
+        return;
+      }
+
+      // 1️⃣ Delete from DB
+      const { error: dbError } = await supabase
+        .from("tryon_history")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (dbError) throw dbError;
+
+      // 2️⃣ Delete from Storage
+      const filePath = imageUrl.split("/storage/v1/object/public/")[1];
+
+      await supabase.storage
+        .from("tryon-images")
+        .remove([filePath]);
+
+      // 3️⃣ Update UI
+      setTryOnHistory((prev) => prev.filter((item) => item.id !== id));
+    } catch (err) {
+      console.error("Delete failed:", err.message);
+    }
   };
 
 
@@ -246,27 +325,73 @@ export default function Dashboard() {
             ) : (
               <Grid container spacing={2}>
                 {tryOnHistory.map((item) => (
-                  <Grid item xs={12} sm={6} md={4} key={item.id}>
-                    <Paper sx={{ p: 1 }}>
-                      <img
+                  <Grid item xs={12} md={6} lg={4} key={item.id}>
+                    <Paper
+                      sx={{
+                        p: 2,
+                        borderRadius: 3,
+                        display: "flex",
+                        gap: 2,
+                        alignItems: "center",
+                        boxShadow: "0px 6px 18px rgba(0,0,0,0.06)"
+                      }}
+                    >
+                      {/* Image */}
+                      <Box
+                        component="img"
                         src={item.image_url}
-                        alt="Try On"
-                        style={{
-                          width: "100%",
-                          height: 250,
+                        alt="try-on"
+                        sx={{
+                          width: 100,
+                          height: 120,
                           objectFit: "cover",
-                          borderRadius: 8,
+                          borderRadius: 2,
+                          backgroundColor: "#f5f5f5"
                         }}
                       />
+
+                      {/* Info */}
+                      <Box sx={{ flex: 1 }}>
+                        <Typography sx={{ fontWeight: 700 }}>
+                          Try-On Look
+                        </Typography>
+
+                        <Typography sx={{ fontSize: 12, color: "#666" }}>
+                          {new Date(item.created_at).toLocaleString()}
+                        </Typography>
+
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => navigate(`/tryon?retake=${item.id}`)}
+                          >
+                            Retake
+                          </Button>
+
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              setSelectedTryOn(item);
+                              setDeleteOpen(true);
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </Stack>
+                      </Box>
                     </Paper>
                   </Grid>
+
+
                 ))}
               </Grid>
             )}
           </Box>
         )}
       </Box>
-<pre>{JSON.stringify(tryOnHistory, null, 2)}</pre>
+
 
       {/* MODAL */}
       <Dialog open={modalOpen} onClose={() => setModalOpen(false)} maxWidth="md" fullWidth>
@@ -278,6 +403,53 @@ export default function Dashboard() {
           />
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={Boolean(previewImage)}
+        onClose={() => setPreviewImage(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogContent sx={{ p: 1 }}>
+          <img
+            src={previewImage}
+            alt="Preview"
+            style={{
+              width: "100%",
+              borderRadius: "8px"
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+  <DialogTitle>Delete Try-On</DialogTitle>
+
+  <DialogContent>
+    <Typography>
+      Are you sure you want to delete this try-on image?
+    </Typography>
+  </DialogContent>
+
+  <DialogActions>
+    <Button onClick={() => setDeleteOpen(false)}>
+      Cancel
+    </Button>
+
+    <Button
+      color="error"
+      variant="contained"
+      onClick={async () => {
+        await deleteTryOn(
+          selectedTryOn.id,
+          selectedTryOn.image_url
+        );
+        setDeleteOpen(false);
+      }}
+    >
+      Delete
+    </Button>
+  </DialogActions>
+</Dialog>
+
     </Box>
   );
 }
