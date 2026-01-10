@@ -1,16 +1,26 @@
 // App.jsx
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import HomePage from "./components/HomePage"; // your existing improved HomePage
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
+
+import HomePage from "./components/HomePage";
 import Login from "./components/Login";
-import Signup from "./components/Signup"; // optional - if you have it
+import Signup from "./components/Signup";
 import Dashboard from "./components/Dashboard";
+
 import TryOn from "./pages/TryOn";
-import VirtualTryOn from "./components/VirtualTryOn";
+
+// 🔐 Auth pages
+import ForgotPassword from "./components/ForgotPassword";
+import ResetPassword from "./components/ResetPassword";
 
 /**
- * Simple auth helper using localStorage.
- * Replace with real auth context / token verification later.
+ * Simple auth helper (localStorage based)
  */
 const auth = {
   isAuthenticated: () => !!localStorage.getItem("vf_token"),
@@ -19,10 +29,11 @@ const auth = {
 
 function ProtectedRoute({ children }) {
   const location = useLocation();
+
   if (!auth.isAuthenticated()) {
-    // Redirect to /login and preserve attempted URL
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
+
   return children;
 }
 
@@ -30,13 +41,16 @@ export default function App() {
   return (
     <Router>
       <Routes>
+        {/* Public routes */}
         <Route path="/" element={<HomePage />} />
-
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
 
+        {/* 🔐 Password reset flow */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
-        {/* Protected dashboard route */}
+        {/* Protected routes */}
         <Route
           path="/dashboard/*"
           element={
@@ -46,10 +60,10 @@ export default function App() {
           }
         />
 
-        {/* Try-on page route (if present) */}
+        {/* Virtual Try-On */}
         <Route path="/tryon" element={<TryOn />} />
-        <Route path="/tryon" element={<VirtualTryOn />} />
-        {/* fallback */}
+
+        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

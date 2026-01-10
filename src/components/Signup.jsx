@@ -1,4 +1,3 @@
-// src/components/Signup.jsx
 import React, { useState } from "react";
 import {
   Box,
@@ -12,48 +11,27 @@ import {
   Snackbar,
   Alert,
   CircularProgress,
-  Divider,
 } from "@mui/material";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
-/**
- * Signup.jsx
- * - Option B fields: Full Name, Email, Phone, Password, Confirm Password
- * - Theme 2: glassmorphic split layout (left decorative panel, right form card)
- * - Inline validation, password rules, show/hide password
- * - Inserts profile to `profiles` table after signUp
- * - Supabase will send confirmation email (ensure your Supabase project has email confirmations enabled)
- */
-
-const colors = {
-  primary: "#7B4BFF",
-  primaryDark: "#6C3EE3",
-  panelGradient: "linear-gradient(135deg, #ffd6e7, #ffe3f3)",
-  pageBg: "#f5f7fb",
-};
-
 export default function Signup() {
   const navigate = useNavigate();
 
-  // form fields
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
-  // visibility
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // UI state
   const [loading, setLoading] = useState(false);
   const [snack, setSnack] = useState({ open: false, severity: "info", message: "" });
 
-  // Validation state
   const [touched, setTouched] = useState({
     fullName: false,
     email: false,
@@ -62,33 +40,27 @@ export default function Signup() {
     confirm: false,
   });
 
-  // Helpers / validators
   const nameValid = (() => {
     const trimmed = fullName.trim();
     if (!trimmed) return false;
-    // Allow letters and single spaces between words, no numbers or special chars
-    // Must not start or end with space (trimmed), no consecutive spaces
     const re = /^[A-Za-z]+(?: [A-Za-z]+)*$/;
     return re.test(fullName);
   })();
 
   const emailValid = (() => {
-    // simple email regex
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(email);
   })();
 
   const phoneValid = (() => {
-    if (!phone.trim()) return true; // OPTIONAL → valid if empty
-    const re = /^[6-9]\d{9}$/;      // Indian format
+    if (!phone.trim()) return true;
+    const re = /^[6-9]\d{9}$/;
     return re.test(phone);
   })();
 
-
-
   const passwordValid = (() => {
     if (!password) return false;
-    if (/\s/.test(password)) return false; // no spaces
+    if (/\s/.test(password)) return false;
     return password.length >= 8;
   })();
 
@@ -100,14 +72,12 @@ export default function Signup() {
     setTouched((t) => ({ ...t, [field]: true }));
   }
 
-  // UI snack helpers
   function showSnack(message, severity = "info") {
     setSnack({ open: true, message, severity });
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    // mark all touched
     setTouched({ fullName: true, email: true, phone: true, password: true, confirm: true });
 
     if (!formValid) {
@@ -118,8 +88,6 @@ export default function Signup() {
     setLoading(true);
 
     try {
-      // Supabase sign up (v2 API)
-      // This will send a confirmation/verification email based on your Supabase settings.
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -132,18 +100,13 @@ export default function Signup() {
         }
       });
 
-
       if (error) {
         throw error;
       }
 
-      // NOTE: data.user (or data) contains user object after signUp depending on supabase config.
-      // We'll attempt to read user id safely.
       const userId = data?.user?.id || data?.id || null;
 
-      // Insert profile in `profiles` table (if user id available)
       if (userId) {
-        // attempt to insert profile row
         const profileInsert = await supabase.from("profiles").upsert(
           {
             id: userId,
@@ -156,21 +119,15 @@ export default function Signup() {
         );
 
         if (profileInsert.error) {
-          // non-fatal: still show success but log
           console.warn("Profile insert error:", profileInsert.error);
         }
-      } else {
-        // In some Supabase setups the user object is available after confirmation; still OK.
-        console.warn("No user id received yet from signUp response.");
       }
 
-      // Show success / next steps
       showSnack(
-        "Signup successful — a verification email has been sent. Please verify your email before logging in.",
+        "Account created successfully! Please verify your email before logging in.",
         "success"
       );
 
-      // Reset form or optionally redirect to login after short delay
       setTimeout(() => {
         setLoading(false);
         navigate("/login");
@@ -190,66 +147,74 @@ export default function Signup() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        bgcolor: colors.pageBg,
-        p: 2,
+        background: "linear-gradient(135deg, #e8d5ff 0%, #f5e6ff 50%, #ffeef8 100%)",
+        padding: 2,
+        position: "relative",
+        overflow: "hidden",
+        "&::before": {
+          content: '""',
+          position: "absolute",
+          top: "-50%",
+          right: "-20%",
+          width: "600px",
+          height: "600px",
+          background: "radial-gradient(circle, rgba(147, 112, 219, 0.15) 0%, transparent 70%)",
+          borderRadius: "50%",
+        },
+        "&::after": {
+          content: '""',
+          position: "absolute",
+          bottom: "-30%",
+          left: "-15%",
+          width: "500px",
+          height: "500px",
+          background: "radial-gradient(circle, rgba(186, 147, 216, 0.15) 0%, transparent 70%)",
+          borderRadius: "50%",
+        }
       }}
     >
-      {/* LEFT decorative panel */}
-      <Box
-        sx={{
-          display: { xs: "none", md: "flex" },
-          width: 420,
-          height: 540,
-          borderRadius: 4,
-          mr: 4,
-          background: colors.panelGradient,
-          boxShadow: "0 20px 50px rgba(123,75,255,0.08)",
-          flexDirection: "column",
-          p: 4,
-          justifyContent: "center",
-        }}
-      >
-        <Typography sx={{ fontFamily: "Playfair Display, serif", fontSize: 32, fontWeight: 800, color: "#2B2345", mb: 1 }}>
-          VirtualFit
-        </Typography>
-        <Typography sx={{ color: "#444", mb: 2 }}>
-          Smart virtual try-ons, AI styling & personalized closets. Create an account to get started.
-        </Typography>
-
-        <Divider sx={{ my: 2 }} />
-
-        <Box sx={{ mt: 2 }}>
-          <Typography sx={{ fontWeight: 700, mb: 1 }}>Why join?</Typography>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            <li style={{ color: "#444" }}>Instant virtual try-ons</li>
-            <li style={{ color: "#444" }}>Personalized recommendations</li>
-            <li style={{ color: "#444" }}>Save your favorite looks</li>
-          </ul>
-        </Box>
-      </Box>
-
-      {/* RIGHT glassmorphic form */}
       <Paper
-        elevation={8}
+        elevation={0}
         sx={{
-          width: { xs: "100%", md: 560 },
-          borderRadius: 3,
-          px: { xs: 3, md: 6 },
-          py: { xs: 3, md: 5 },
-          background: "rgba(255,255,255,0.85)",
-          backdropFilter: "blur(6px)",
+          width: { xs: "100%", sm: "480px" },
+          borderRadius: "24px",
+          px: { xs: 3, sm: 5 },
+          py: { xs: 4, sm: 5 },
+          background: "rgba(255, 255, 255, 0.95)",
+          backdropFilter: "blur(20px)",
+          border: "1px solid rgba(255, 255, 255, 0.3)",
+          boxShadow: "0 20px 60px rgba(124, 58, 237, 0.12)",
+          position: "relative",
+          zIndex: 1,
         }}
       >
-        <Typography sx={{ fontSize: 22, fontWeight: 800, color: "#2B2345", mb: 1 }}>
-          Create your account
+        <Typography 
+          sx={{ 
+            fontSize: "32px", 
+            fontWeight: "700", 
+            color: "#2d1b3d",
+            mb: 1,
+            textAlign: "center",
+          }}
+        >
+          Create Account
         </Typography>
-        <Typography sx={{ color: "#666", mb: 3 }}>Sign up to start using VirtualFit</Typography>
+        
+        <Typography 
+          sx={{ 
+            color: "#7d6a8e", 
+            mb: 4,
+            textAlign: "center",
+            fontSize: "15px",
+          }}
+        >
+          Join VirtualFit and discover your perfect style
+        </Typography>
 
         <Box component="form" onSubmit={handleSubmit} noValidate>
-          <Stack spacing={2}>
-            {/* FULL NAME */}
+          <Stack spacing={2.5}>
             <TextField
-              label="Full name"
+              label="Full Name"
               required
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
@@ -257,45 +222,78 @@ export default function Signup() {
               error={touched.fullName && !nameValid}
               helperText={
                 touched.fullName && !nameValid
-                  ? "Enter your full name (letters and single spaces only, no numbers)."
+                  ? "Enter your full name (letters and spaces only)"
                   : " "
               }
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "12px",
+                  background: "#fafafa",
+                  "&:hover fieldset": {
+                    borderColor: "#ff6b9d",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#ff6b9d",
+                  }
+                }
+              }}
               InputLabelProps={{
-                sx: { "& .MuiFormLabel-asterisk": { color: "red" } },
+                sx: { "& .MuiFormLabel-asterisk": { color: "#7c3aed" } },
               }}
             />
 
-            {/* EMAIL */}
             <TextField
-              label="Email address"
+              label="Email Address"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onBlur={() => handleTouch("email")}
               error={touched.email && !emailValid}
               helperText={
-                touched.email && !emailValid ? "Enter a valid email (example@domain.com)" : " "
+                touched.email && !emailValid ? "Enter a valid email address" : " "
               }
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "12px",
+                  background: "#fafafa",
+                  "&:hover fieldset": {
+                    borderColor: "#ff6b9d",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#ff6b9d",
+                  }
+                }
+              }}
               InputLabelProps={{
-                sx: { "& .MuiFormLabel-asterisk": { color: "red" } },
+                sx: { "& .MuiFormLabel-asterisk": { color: "#7c3aed" } },
               }}
             />
 
-            {/* PHONE */}
             <TextField
-              label="Phone (optional)"
+              label="Phone Number (Optional)"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               onBlur={() => handleTouch("phone")}
               error={touched.phone && !phoneValid}
               helperText={
                 touched.phone && !phoneValid
-                  ? "Enter a valid 10-digit Indian phone number (starting with 6–9)."
+                  ? "Enter a valid 10-digit phone number"
                   : " "
               }
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "12px",
+                  background: "#fafafa",
+                  "&:hover fieldset": {
+                    borderColor: "#ff6b9d",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#ff6b9d",
+                  }
+                }
+              }}
             />
 
-            {/* PASSWORD */}
             <TextField
               label="Password"
               required
@@ -306,16 +304,28 @@ export default function Signup() {
               error={touched.password && !passwordValid}
               helperText={
                 touched.password && !passwordValid
-                  ? "Password must be at least 8 characters and contain no spaces."
+                  ? "Password must be at least 8 characters with no spaces"
                   : " "
               }
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "12px",
+                  background: "#fafafa",
+                  "&:hover fieldset": {
+                    borderColor: "#ff6b9d",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#ff6b9d",
+                  }
+                }
+              }}
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
                       onClick={() => setShowPassword((s) => !s)}
                       edge="end"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      sx={{ color: "#9d8aaa" }}
                     >
                       {showPassword ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
@@ -323,13 +333,12 @@ export default function Signup() {
                 ),
               }}
               InputLabelProps={{
-                sx: { "& .MuiFormLabel-asterisk": { color: "red" } },
+                sx: { "& .MuiFormLabel-asterisk": { color: "#7c3aed" } },
               }}
             />
 
-            {/* CONFIRM PASSWORD */}
             <TextField
-              label="Confirm password"
+              label="Confirm Password"
               required
               type={showConfirm ? "text" : "password"}
               value={confirm}
@@ -337,15 +346,27 @@ export default function Signup() {
               onBlur={() => handleTouch("confirm")}
               error={touched.confirm && !confirmValid}
               helperText={
-                touched.confirm && !confirmValid ? "Passwords do not match." : " "
+                touched.confirm && !confirmValid ? "Passwords do not match" : " "
               }
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "12px",
+                  background: "#fafafa",
+                  "&:hover fieldset": {
+                    borderColor: "#ff6b9d",
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "#ff6b9d",
+                  }
+                }
+              }}
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
                       onClick={() => setShowConfirm((s) => !s)}
                       edge="end"
-                      aria-label={showConfirm ? "Hide password" : "Show password"}
+                      sx={{ color: "#9d8aaa" }}
                     >
                       {showConfirm ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
@@ -353,40 +374,58 @@ export default function Signup() {
                 ),
               }}
               InputLabelProps={{
-                sx: { "& .MuiFormLabel-asterisk": { color: "red" } },
+                sx: { "& .MuiFormLabel-asterisk": { color: "#7c3aed" } },
               }}
             />
 
-            {/* SUBMIT */}
-            <Box sx={{ mt: 1 }}>
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                disabled={loading}
-                sx={{
-                  background: colors.primary,
-                  ":hover": { background: colors.primaryDark },
-                  py: 1.2,
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              disabled={loading}
+              sx={{
+                background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)",
+                height: "52px",
+                borderRadius: "12px",
+                fontSize: "16px",
+                fontWeight: "600",
+                textTransform: "none",
+                mt: 2,
+                boxShadow: "0 8px 24px rgba(124, 58, 237, 0.3)",
+                "&:hover": {
+                  background: "linear-gradient(135deg, #6d28d9 0%, #9333ea 100%)",
+                  boxShadow: "0 12px 32px rgba(124, 58, 237, 0.4)",
+                }
+              }}
+            >
+              {loading ? <CircularProgress size={24} color="inherit" /> : "Create Account"}
+            </Button>
+
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                textAlign: "center", 
+                mt: 2,
+                color: "#7d6a8e",
+                fontSize: "15px",
+              }}
+            >
+              Already have an account?{" "}
+              <span
+                onClick={() => navigate("/login")}
+                style={{ 
+                  color: "#7c3aed", 
+                  cursor: "pointer", 
+                  fontWeight: "600",
                 }}
               >
-                {loading ? <CircularProgress size={20} color="inherit" /> : "Sign up"}
-              </Button>
-            </Box>
-
-            <Box sx={{ textAlign: "center", mt: 1 }}>
-              <Typography variant="body2">
-                Already have an account?{" "}
-                <Button onClick={() => navigate("/login")} variant="text" sx={{ textTransform: "none" }}>
-                  Log in
-                </Button>
-              </Typography>
-            </Box>
+                Sign In
+              </span>
+            </Typography>
           </Stack>
         </Box>
       </Paper>
 
-      {/* SNACKBAR */}
       <Snackbar
         open={snack.open}
         autoHideDuration={5000}
@@ -404,4 +443,3 @@ export default function Signup() {
     </Box>
   );
 }
-  
