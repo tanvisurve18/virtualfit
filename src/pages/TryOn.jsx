@@ -1,28 +1,30 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pose } from "@mediapipe/pose";
+import { fetchShopifyProducts } from "../api/shopify";
 
-// Mock Supabase client - replace with your actual import
+/* ---------------- MOCK SUPABASE (unchanged) ---------------- */
 const supabase = {
   auth: {
-    getUser: async () => ({ 
+    getUser: async () => ({
       data: { user: { id: "user_123", email: "demo@virtualfit.com" } },
-      error: null 
-    })
+      error: null,
+    }),
   },
   storage: {
     from: (bucket) => ({
       upload: async (path, blob) => ({ data: { path }, error: null }),
-      getPublicUrl: (path) => ({ 
-        data: { publicUrl: `https://storage.supabase.co/${bucket}/${path}` }
-      })
-    })
+      getPublicUrl: (path) => ({
+        data: { publicUrl: `https://storage.supabase.co/${bucket}/${path}` },
+      }),
+    }),
   },
-  from: (table) => ({
-    insert: async (data) => ({ data, error: null })
-  })
+  from: () => ({
+    insert: async (data) => ({ data, error: null }),
+  }),
 };
 
 export default function TryOn() {
+  /* ---------------- REFS ---------------- */
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const poseRef = useRef(null);
@@ -31,113 +33,84 @@ export default function TryOn() {
   const streamRef = useRef(null);
   const clothingImagesRef = useRef({});
 
+  /* ---------------- STATE ---------------- */
   const [cameraOn, setCameraOn] = useState(false);
   const [captured, setCaptured] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedClothing, setSelectedClothing] = useState(null);
   const [selectedSize, setSelectedSize] = useState("M");
+
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [imagesLoaded, setImagesLoaded] = useState({});
   const [poseDetected, setPoseDetected] = useState(false);
 
-  // Size scale factors
+  /* ---------------- SIZE SCALE ---------------- */
   const sizeScales = {
     XS: 0.8,
     S: 0.9,
     M: 1.0,
     L: 1.1,
     XL: 1.2,
-    XXL: 1.3
+    XXL: 1.3,
   };
 
-  /* ---------------- BETTER CLOTHING PRODUCTS WITH WORKING URLS ---------------- */
+  /* =========================================================
+     ✅ SHOPIFY PRODUCTS (ONLY SOURCE OF PRODUCTS)
+     ========================================================= */
   useEffect(() => {
-    const realProducts = [
-      {
-        id: 1,
-        name: "Classic White Tee",
-        type: "tshirt",
-        fit_scale: "normal",
-        // Using a simple SVG as fallback that always works
-        image_svg: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 250'%3E%3Cpath d='M50,30 Q50,20 60,20 L140,20 Q150,20 150,30 L170,60 Q175,70 170,80 L165,240 Q165,245 160,245 L40,245 Q35,245 35,240 L30,80 Q25,70 30,60 Z' fill='%23ffffff' stroke='%23333' stroke-width='2'/%3E%3C/svg%3E`,
-        price: "$29"
-      },
-      {
-        id: 2,
-        name: "Black T-Shirt",
-        type: "tshirt",
-        fit_scale: "normal",
-        image_svg: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 250'%3E%3Cpath d='M50,30 Q50,20 60,20 L140,20 Q150,20 150,30 L170,60 Q175,70 170,80 L165,240 Q165,245 160,245 L40,245 Q35,245 35,240 L30,80 Q25,70 30,60 Z' fill='%23000000' stroke='%23333' stroke-width='2'/%3E%3C/svg%3E`,
-        price: "$29"
-      },
-      {
-        id: 3,
-        name: "Blue Polo Shirt",
-        type: "shirt",
-        fit_scale: "normal",
-        image_svg: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 250'%3E%3Cpath d='M50,30 Q50,20 60,20 L140,20 Q150,20 150,30 L170,60 Q175,70 170,80 L165,240 Q165,245 160,245 L40,245 Q35,245 35,240 L30,80 Q25,70 30,60 Z' fill='%232196F3' stroke='%23333' stroke-width='2'/%3E%3Cpath d='M95,20 L95,40 Q100,45 100,45 Q100,45 105,40 L105,20' fill='%232196F3' stroke='%23333' stroke-width='1.5'/%3E%3C/svg%3E`,
-        price: "$39"
-      },
-      {
-        id: 4,
-        name: "Red Hoodie",
-        type: "hoodie",
-        fit_scale: "oversized",
-        image_svg: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 280'%3E%3Cpath d='M40,25 Q40,10 55,10 L165,10 Q180,10 180,25 L200,70 Q205,85 200,95 L195,260 Q195,270 185,270 L35,270 Q25,270 25,260 L20,95 Q15,85 20,70 Z' fill='%23e53935' stroke='%23333' stroke-width='2'/%3E%3Cellipse cx='110' cy='20' rx='35' ry='15' fill='%23c62828' stroke='%23333' stroke-width='1.5'/%3E%3C/svg%3E`,
-        price: "$59"
-      },
-      {
-        id: 5,
-        name: "Green T-Shirt",
-        type: "tshirt",
-        fit_scale: "normal",
-        image_svg: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 250'%3E%3Cpath d='M50,30 Q50,20 60,20 L140,20 Q150,20 150,30 L170,60 Q175,70 170,80 L165,240 Q165,245 160,245 L40,245 Q35,245 35,240 L30,80 Q25,70 30,60 Z' fill='%234CAF50' stroke='%23333' stroke-width='2'/%3E%3C/svg%3E`,
-        price: "$29"
-      },
-      {
-        id: 6,
-        name: "Gray Hoodie",
-        type: "hoodie",
-        fit_scale: "oversized",
-        image_svg: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 280'%3E%3Cpath d='M40,25 Q40,10 55,10 L165,10 Q180,10 180,25 L200,70 Q205,85 200,95 L195,260 Q195,270 185,270 L35,270 Q25,270 25,260 L20,95 Q15,85 20,70 Z' fill='%23757575' stroke='%23333' stroke-width='2'/%3E%3Cellipse cx='110' cy='20' rx='35' ry='15' fill='%23616161' stroke='%23333' stroke-width='1.5'/%3E%3C/svg%3E`,
-        price: "$65"
-      }
-    ];
-
-    setProducts(realProducts);
-    
-    // Load all images
-    let loadedCount = 0;
-    const loadedStatus = {};
-
-    realProducts.forEach(product => {
-      const img = new Image();
-      img.onload = () => {
-        clothingImagesRef.current[product.id] = img;
-        loadedStatus[product.id] = true;
-        loadedCount++;
-        console.log(`✅ Loaded: ${product.name}`);
-        
-        if (loadedCount === realProducts.length) {
-          setImagesLoaded(loadedStatus);
-          setLoadingProducts(false);
-          console.log("✅ All clothing images loaded!");
-        }
-      };
-      img.onerror = () => {
-        console.error(`❌ Failed to load: ${product.name}`);
-        loadedCount++;
-        if (loadedCount === realProducts.length) {
-          setImagesLoaded(loadedStatus);
-          setLoadingProducts(false);
-        }
-      };
-      img.src = product.image_svg;
-    });
+    fetchShopifyProducts()
+      .then((shopifyProducts) => {
+        setProducts(shopifyProducts);
+        preloadShopifyImages(shopifyProducts);
+      })
+      .catch(console.error)
+      .finally(() => setLoadingProducts(false));
   }, []);
 
-  /* ---------------- INIT MEDIAPIPE ---------------- */
+  /* ---------------- IMAGE PRELOAD (SHOPIFY) ---------------- */
+  const preloadShopifyImages = (items) => {
+    const loaded = {};
+    let count = 0;
+
+    items.forEach((product) => {
+      const imgUrl = product.images?.[0]?.src;
+      if (!imgUrl) return;
+
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = imgUrl;
+
+      img.onload = () => {
+        clothingImagesRef.current[product.id] = img;
+        loaded[product.id] = true;
+        count++;
+
+        if (count === items.length) {
+          setImagesLoaded(loaded);
+        }
+      };
+    });
+  };
+
+  useEffect(() => {
+    async function loadProducts() {
+      try {
+        setLoadingProducts(true);
+        const shopifyProducts = await fetchShopifyProducts();
+        setProducts(shopifyProducts);
+      } catch (err) {
+        console.error("Shopify fetch failed:", err);
+      } finally {
+        setLoadingProducts(false);
+      }
+    }
+
+    loadProducts();
+  }, []);
+
+
+  /* ---------------- MEDIAPIPE INIT ---------------- */
   useEffect(() => {
     const pose = new Pose({
       locateFile: (file) =>
@@ -147,7 +120,6 @@ export default function TryOn() {
     pose.setOptions({
       modelComplexity: 1,
       smoothLandmarks: true,
-      enableSegmentation: false,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
@@ -160,49 +132,30 @@ export default function TryOn() {
     });
 
     poseRef.current = pose;
-    console.log("✅ MediaPipe Pose initialized");
-    
     return () => pose.close();
   }, []);
 
-  /* ---------------- START CAMERA ---------------- */
+  /* ---------------- CAMERA ---------------- */
   const startCamera = async () => {
     if (cameraOn) return;
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false,
-      });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" },
+    });
 
-      streamRef.current = stream;
-      videoRef.current.srcObject = stream;
-
-      videoRef.current.onloadedmetadata = () => {
-        videoRef.current.play();
-        setCameraOn(true);
-        setCaptured(false);
-        setPoseDetected(false);
-        console.log("✅ Camera started");
-        drawLoop();
-      };
-    } catch (err) {
-      alert("Camera access denied. Please allow camera permissions.");
-      console.error(err);
-    }
+    streamRef.current = stream;
+    videoRef.current.srcObject = stream;
+    videoRef.current.onloadedmetadata = () => {
+      videoRef.current.play();
+      setCameraOn(true);
+      drawLoop();
+    };
   };
 
-  /* ---------------- STOP CAMERA ---------------- */
   const stopCamera = () => {
     cancelAnimationFrame(animationRef.current);
     streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
     setCameraOn(false);
-    setPoseDetected(false);
   };
 
   /* ---------------- DRAW LOOP ---------------- */
@@ -216,289 +169,51 @@ export default function TryOn() {
       return;
     }
 
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Mirror camera feed
     ctx.save();
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     ctx.restore();
 
-    // Draw clothing overlay
-    if (selectedClothing && clothingImagesRef.current[selectedClothing.id]) {
+    if (
+      selectedClothing &&
+      clothingImagesRef.current[selectedClothing.id]
+    ) {
       drawClothing(ctx);
     }
 
-    // Send frame to mediapipe
-    if (poseRef.current) {
-      await poseRef.current.send({ image: video });
-    }
-
+    await poseRef.current.send({ image: video });
     animationRef.current = requestAnimationFrame(drawLoop);
   };
 
-  /* ---------------- IMPROVED CLOTHING OVERLAY ---------------- */
+  /* ---------------- CLOTHING OVERLAY ---------------- */
   const drawClothing = (ctx) => {
-    const clothingImg = clothingImagesRef.current[selectedClothing.id];
-    if (!clothingImg) {
-      console.warn("Clothing image not loaded yet");
-      return;
-    }
-    
-    if (!landmarksRef.current) {
-      console.warn("No pose landmarks detected yet");
-      return;
-    }
+    if (!landmarksRef.current) return;
 
-    const canvas = canvasRef.current;
+    const img = clothingImagesRef.current[selectedClothing.id];
+    if (!img) return;
+
     const lm = landmarksRef.current;
+    const ls = lm[11];
+    const rs = lm[12];
+    const lh = lm[23];
+    const rh = lm[24];
 
-    // Key landmarks
-    const leftShoulder = lm[11];
-    const rightShoulder = lm[12];
-    const leftHip = lm[23];
-    const rightHip = lm[24];
+    if (!ls || !rs || !lh || !rh) return;
 
-    if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
-      console.warn("Missing required landmarks");
-      return;
-    }
+    const w = Math.abs(rs.x - ls.x) * canvasRef.current.width * 1.8;
+    const h = Math.abs(lh.y - ls.y) * canvasRef.current.height * 1.4;
+    const x = (1 - (ls.x + rs.x) / 2) * canvasRef.current.width - w / 2;
+    const y = ls.y * canvasRef.current.height + 10;
 
-    // Check visibility
-    if (leftShoulder.visibility < 0.5 || rightShoulder.visibility < 0.5) {
-      console.warn("Low visibility landmarks");
-      return;
-    }
-
-    // Convert to canvas coordinates (mirrored)
-    const ls = {
-      x: (1 - leftShoulder.x) * canvas.width,
-      y: leftShoulder.y * canvas.height,
-      z: leftShoulder.z
-    };
-    const rs = {
-      x: (1 - rightShoulder.x) * canvas.width,
-      y: rightShoulder.y * canvas.height,
-      z: rightShoulder.z
-    };
-    const lh = {
-      x: (1 - leftHip.x) * canvas.width,
-      y: leftHip.y * canvas.height
-    };
-    const rh = {
-      x: (1 - rightHip.x) * canvas.width,
-      y: rightHip.y * canvas.height
-    };
-
-    // Calculate measurements
-    const shoulderWidth = Math.hypot(rs.x - ls.x, rs.y - ls.y);
-    const torsoHeight = Math.hypot(
-      (lh.x + rh.x) / 2 - (ls.x + rs.x) / 2,
-      (lh.y + rh.y) / 2 - (ls.y + rs.y) / 2
-    );
-
-    // Clothing dimensions based on type
-    let widthMultiplier = 1.8;
-    let heightMultiplier = 1.4;
-    let necklineOffset = 0.08;
-
-    switch (selectedClothing.type) {
-      case "hoodie":
-        widthMultiplier = 2.2;
-        heightMultiplier = 1.6;
-        necklineOffset = 0.05;
-        break;
-      case "shirt":
-        widthMultiplier = 1.8;
-        heightMultiplier = 1.4;
-        necklineOffset = 0.08;
-        break;
-      case "tshirt":
-      default:
-        widthMultiplier = 1.8;
-        heightMultiplier = 1.4;
-        necklineOffset = 0.08;
-        break;
-    }
-
-    // Apply fit scale
-    if (selectedClothing.fit_scale === "oversized") {
-      widthMultiplier *= 1.15;
-      heightMultiplier *= 1.1;
-    }
-
-    // Apply size
-    const sizeMultiplier = sizeScales[selectedSize] || 1.0;
-
-    // Final dimensions
-    const clothingWidth = shoulderWidth * widthMultiplier * sizeMultiplier;
-    const clothingHeight = torsoHeight * heightMultiplier * sizeMultiplier;
-
-    // Center position
-    const centerX = (ls.x + rs.x) / 2;
-    const shoulderY = Math.min(ls.y, rs.y);
-
-    // Position with neckline offset
-    const x = centerX - clothingWidth / 2;
-    const y = shoulderY + (shoulderWidth * necklineOffset);
-
-    // Calculate rotation
-    const angle = Math.atan2(rs.y - ls.y, rs.x - ls.x);
-
-    // Draw with transformations
-    ctx.save();
-    ctx.translate(centerX, y + clothingHeight / 2);
-    ctx.rotate(angle);
-    
-    ctx.translate(-centerX, -(y + clothingHeight / 2));
-
-    // Draw the clothing
-    ctx.globalAlpha = 0.95;
-
-    try {
-      ctx.drawImage(
-        clothingImg,
-        x,
-        y,
-        clothingWidth,
-        clothingHeight
-      );
-      
-      // Debug: Draw bounding box
-      if (false) { // Set to true for debugging
-        ctx.strokeStyle = "#00FF00";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, clothingWidth, clothingHeight);
-      }
-    } catch (err) {
-      console.error("Draw error:", err);
-    }
-
-    ctx.restore();
-
-    // Debug: Draw landmarks
-    if (false) { // Set to true for debugging
-      drawLandmarks(ctx, lm);
-    }
+    ctx.drawImage(img, x, y, w, h);
   };
 
-  /* ---------------- DEBUG LANDMARKS ---------------- */
-  const drawLandmarks = (ctx, landmarks) => {
-    const canvas = canvasRef.current;
-    
-    const keyPoints = [11, 12, 23, 24];
-    
-    keyPoints.forEach(idx => {
-      const lm = landmarks[idx];
-      if (lm && lm.visibility > 0.5) {
-        const x = (1 - lm.x) * canvas.width;
-        const y = lm.y * canvas.height;
-        
-        ctx.fillStyle = "#00FF00";
-        ctx.beginPath();
-        ctx.arc(x, y, 8, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "12px Arial";
-        ctx.fillText(idx, x + 10, y);
-      }
-    });
-  };
 
-  /* ---------------- CAPTURE & SAVE TO SUPABASE ---------------- */
-  const capture = async () => {
-    try {
-      setSaving(true);
-      cancelAnimationFrame(animationRef.current);
-      
-      const imageData = canvasRef.current.toDataURL("image/png");
-      setCaptured(true);
 
-      // Get authenticated user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        alert("Please log in to save your try-on");
-        setSaving(false);
-        return;
-      }
-
-      // Convert base64 to blob
-      const response = await fetch(imageData);
-      const blob = await response.blob();
-
-      // Create unique filename
-      const timestamp = Date.now();
-      const filename = `tryon_${user.id}_${timestamp}.png`;
-
-      // Upload to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("tryon-images")
-        .upload(filename, blob, {
-          contentType: "image/png",
-          cacheControl: "3600",
-          upsert: false
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        alert("Failed to upload image");
-        setSaving(false);
-        return;
-      }
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from("tryon-images")
-        .getPublicUrl(filename);
-
-      // Save to database
-      const { data: dbData, error: dbError } = await supabase
-        .from("tryon_history")
-        .insert({
-          user_id: user.id,
-          item_id: selectedClothing.id,
-          item_name: selectedClothing.name,
-          size: selectedSize,
-          image_url: urlData.publicUrl,
-          created_at: new Date().toISOString()
-        });
-
-      if (dbError) {
-        console.error("Database error:", dbError);
-        alert("Failed to save to database");
-      } else {
-        alert("✅ Try-on saved! Check your Dashboard > Try-On History");
-      }
-
-    } catch (err) {
-      console.error("Capture error:", err);
-      alert("Failed to save try-on");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /* ---------------- RETAKE ---------------- */
-  const retake = () => {
-    setCaptured(false);
-    startCamera();
-  };
-
-  /* ---------------- DONE ---------------- */
-  const handleDone = () => {
-    stopCamera();
-    setCaptured(false);
-    alert("In your app, this will navigate to Dashboard > Try-On History");
-  };
-
-  /* ---------------- CLEANUP ---------------- */
-  useEffect(() => () => stopCamera(), []);
 
   return (
     <div style={{
@@ -894,114 +609,95 @@ export default function TryOn() {
               gridTemplateColumns: "1fr",
               gap: "12px"
             }}>
-              {products.map(product => (
+              {products.map((product) => (
                 <div
                   key={product.id}
                   onClick={() => setSelectedClothing(product)}
                   style={{
-                    border: selectedClothing?.id === product.id 
-                      ? "3px solid #667eea" 
+                    border: selectedClothing?.id === product.id
+                      ? "3px solid #667eea"
                       : "2px solid #e0e0e0",
                     borderRadius: "12px",
                     padding: "12px",
                     cursor: "pointer",
                     transition: "all 0.2s",
-                    background: selectedClothing?.id === product.id 
-                      ? "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" 
+                    background: selectedClothing?.id === product.id
+                      ? "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)"
                       : "#fff",
                     display: "flex",
                     gap: "12px",
-                    alignItems: "center"
+                    alignItems: "center",
                   }}
                 >
-                  <div style={{
-                    width: "80px",
-                    height: "80px",
-                    borderRadius: "8px",
-                    overflow: "hidden",
-                    flexShrink: 0,
-                    background: "#f5f5f5",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    position: "relative"
-                  }}>
+                  {/* IMAGE */}
+                  <div
+                    style={{
+                      width: "80px",
+                      height: "80px",
+                      borderRadius: "8px",
+                      overflow: "hidden",
+                      flexShrink: 0,
+                      background: "#f5f5f5",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
                     <img
-                      src={product.image_svg}
-                      alt={product.name}
+                      src={product.images?.[0]?.src}
+                      alt={product.title}
                       style={{
                         maxWidth: "100%",
                         maxHeight: "100%",
-                        objectFit: "contain"
+                        objectFit: "contain",
                       }}
                     />
-                    {imagesLoaded[product.id] && (
-                      <div style={{
-                        position: "absolute",
-                        top: "4px",
-                        right: "4px",
-                        background: "#4CAF50",
-                        color: "#fff",
-                        borderRadius: "50%",
-                        width: "20px",
-                        height: "20px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "0.7rem"
-                      }}>
-                        ✓
-                      </div>
-                    )}
                   </div>
+
+                  {/* DETAILS */}
                   <div style={{ flex: 1 }}>
-                    <h3 style={{
-                      fontSize: "0.95rem",
-                      fontWeight: "600",
-                      margin: "0 0 4px",
-                      color: "#333"
-                    }}>
-                      {product.name}
+                    <h3
+                      style={{
+                        fontSize: "0.95rem",
+                        fontWeight: "600",
+                        margin: "0 0 4px",
+                        color: "#333",
+                      }}
+                    >
+                      {product.title}
                     </h3>
-                    <div style={{
-                      display: "flex",
-                      gap: "6px",
-                      marginBottom: "4px"
-                    }}>
-                      <span style={{
-                        fontSize: "0.75rem",
-                        padding: "2px 8px",
-                        background: "#e3f2fd",
-                        color: "#1976d2",
-                        borderRadius: "4px",
-                        fontWeight: "600"
-                      }}>
-                        {product.type}
-                      </span>
-                      {product.fit_scale === "oversized" && (
-                        <span style={{
+
+                    {product.product_type && (
+                      <span
+                        style={{
                           fontSize: "0.75rem",
                           padding: "2px 8px",
-                          background: "#f3e5f5",
-                          color: "#7b1fa2",
+                          background: "#e3f2fd",
+                          color: "#1976d2",
                           borderRadius: "4px",
-                          fontWeight: "600"
-                        }}>
-                          Oversized
-                        </span>
-                      )}
-                    </div>
-                    <p style={{
-                      fontSize: "1rem",
-                      fontWeight: "700",
-                      color: "#667eea",
-                      margin: 0
-                    }}>
-                      {product.price}
+                          fontWeight: "600",
+                          display: "inline-block",
+                          marginBottom: "6px",
+                        }}
+                      >
+                        {product.product_type}
+                      </span>
+                    )}
+
+                    <p
+                      style={{
+                        fontSize: "1rem",
+                        fontWeight: "700",
+                        color: "#667eea",
+                        margin: 0,
+                      }}
+                    >
+                      ₹{product.variants?.[0]?.price}
                     </p>
                   </div>
                 </div>
               ))}
+
             </div>
           )}
         </div>
