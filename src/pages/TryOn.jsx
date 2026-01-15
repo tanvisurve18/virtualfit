@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pose } from "@mediapipe/pose";
-import { fetchShopifyProducts } from "../api/shopify";
+import { fetchProducts } from "../api/shopify";
 
 /* ---------------- MOCK SUPABASE (unchanged) ---------------- */
 const supabase = {

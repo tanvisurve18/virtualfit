@@ -2,13 +2,12 @@ import React, { useEffect, useState } from "react";
 import {
   Box,
   Grid,
-  Paper,
   Typography,
   Card,
   CardMedia,
   CardContent,
   Button,
-  CircularProgress
+  CircularProgress,
 } from "@mui/material";
 
 import Sidebar from "./Sidebar";
@@ -21,41 +20,64 @@ const THEME = {
     "linear-gradient(90deg, rgba(219,233,255,1) 0%, rgba(227,211,247,1) 50%, rgba(248,217,227,1) 100%)",
   pageBg: "#F6F7FB",
 };
+const COLLECTIONS = {
+  women: "687879225714",
+  men: "687879061874",
+  hoodies: "687879258482",
+  tshirts: "687879324018",
+};
 
-/* ================= COMPONENT ================= */
+
 export default function Dashboard() {
-  /* ---------------- STATE (ALL HOOKS AT TOP) ---------------- */
   const [products, setProducts] = useState([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [cursor, setCursor] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState(null);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [activeCollection, setActiveCollection] = useState("women");
 
-  /* ---------------- FETCH SHOPIFY PRODUCTS ---------------- */
+  /* ---------------- INITIAL LOAD ---------------- */
   useEffect(() => {
-    fetchProducts();
+    loadProducts(false);
   }, []);
 
-  async function fetchProducts() {
+  async function loadProducts(isLoadMore = false, collection = activeCollection) {
     try {
-      setLoadingProducts(true);
+      if (isLoadMore) setLoadingMore(true);
+      else setLoading(true);
 
       const { data, error } = await supabase.functions.invoke(
-        "shopify-products"
+        "shopify-products",
+        {
+          body: {
+            cursor: isLoadMore ? cursor : null,
+            collection,
+          },
+        }
       );
 
       if (error) throw error;
 
-      // Shopify REST response → products array
-      setProducts(data.products || []);
+      const newProducts = data.products || [];
+
+      setProducts((prev) =>
+        isLoadMore ? [...prev, ...newProducts] : newProducts
+      );
+
+      setCursor(data.nextCursor);
+      setHasMore(Boolean(data.nextCursor));
     } catch (err) {
       console.error("Failed to load products:", err);
-      setError("Failed to load products");
     } finally {
-      setLoadingProducts(false);
+      setLoading(false);
+      setLoadingMore(false);
     }
   }
 
-  /* ---------------- RENDER STATES ---------------- */
-  if (loadingProducts) {
+  /* ---------------- LOADING ---------------- */
+  if (loading) {
     return (
       <Box sx={{ p: 4 }}>
         <CircularProgress />
@@ -64,6 +86,7 @@ export default function Dashboard() {
     );
   }
 
+  /* ---------------- ERROR ---------------- */
   if (error) {
     return (
       <Box sx={{ p: 4 }}>
@@ -71,6 +94,15 @@ export default function Dashboard() {
       </Box>
     );
   }
+
+  function handleCollectionChange(col) {
+    setActiveCollection(col);
+    setProducts([]);
+    setCursor(null);
+    setHasMore(true);
+    loadProducts(false, col);
+  }
+
 
   /* ================= UI ================= */
   return (
@@ -83,7 +115,9 @@ export default function Dashboard() {
           <Typography sx={{ fontSize: 22, fontWeight: 800 }}>
             Hi there 👋
           </Typography>
-          <Typography>Welcome back — your wardrobe is ready.</Typography>
+          <Typography>
+            Welcome back — your wardrobe is ready.
+          </Typography>
         </Box>
 
         {/* NEW ARRIVALS */}
@@ -91,55 +125,106 @@ export default function Dashboard() {
           <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 2 }}>
             New Arrivals ✨
           </Typography>
+          {/* COLLECTION BUTTONS */}
+          <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+            <Button
+              variant={activeCollection === "women" ? "contained" : "outlined"}
+              onClick={() => handleCollectionChange("women")}
+            >
+              WOMEN
+            </Button>
 
-          <Grid container spacing={2}>
-            {products.map((product) => (
-              <Grid item xs={6} sm={4} md={3} lg={2} key={product.id}>
-                <Card sx={{ borderRadius: 2 }}>
-                  {/* 🔽 SMALLER IMAGE SIZE */}
-                  <CardMedia
-                    component="img"
-                    image={product.image?.src}
-                    alt={product.title}
-                    sx={{
-                      height: 140,          // 👈 smaller image
-                      objectFit: "contain",
-                      p: 1,
-                      backgroundColor: "#fff"
-                    }}
-                  />
+            <Button
+              variant={activeCollection === "men" ? "contained" : "outlined"}
+              onClick={() => handleCollectionChange("men")}
+            >
+              MEN
+            </Button>
 
-                  <CardContent sx={{ p: 1 }}>
-                    <Typography
-                      fontSize={13}
-                      fontWeight={700}
-                      noWrap
-                    >
-                      {product.title}
-                    </Typography>
+            <Button
+              variant={activeCollection === "hoodies" ? "contained" : "outlined"}
+              onClick={() => handleCollectionChange("hoodies")}
+            >
+              HOODIES
+            </Button>
 
-                    <Typography fontSize={12} color="text.secondary">
-                      ₹{product.variants?.[0]?.price}
-                    </Typography>
-                  </CardContent>
+            <Button
+              variant={activeCollection === "tshirts" ? "contained" : "outlined"}
+              onClick={() => handleCollectionChange("tshirts")}
+            >
+              T-SHIRTS
+            </Button>
+          </Box>
 
-                  <Button
-                    size="small"
-                    sx={{
-                      m: 1,
-                      bgcolor: THEME.primary,
-                      color: "#fff",
-                      fontSize: 11,
-                      "&:hover": { bgcolor: "#6C3EE3" }
-                    }}
-                    fullWidth
-                  >
-                    Try On
-                  </Button>
-                </Card>
+          {products.length === 0 ? (
+            <Typography>No products found</Typography>
+          ) : (
+            <>
+              <Grid container spacing={2}>
+                {products && products.length > 0 && products.map((product) => (
+                  <Grid item xs={6} sm={4} md={3} lg={2} key={product.id}>
+                    <Card sx={{ borderRadius: 2 }}>
+                      <CardMedia
+                        component="img"
+                        image={product.image}
+                        alt={product.title}
+                        sx={{
+                          height: 140,
+                          objectFit: "contain",
+                          p: 1,
+                          bgcolor: "#fff",
+                        }}
+                      />
+
+                      <CardContent sx={{ p: 1 }}>
+                        <Typography
+                          fontSize={13}
+                          fontWeight={700}
+                          noWrap
+                        >
+                          {product.title}
+                        </Typography>
+
+                        <Typography
+                          fontSize={12}
+                          color="text.secondary"
+                        >
+                          ₹{product.price}
+                        </Typography>
+                      </CardContent>
+
+                      <Button
+                        size="small"
+                        fullWidth
+                        sx={{
+                          m: 1,
+                          bgcolor: THEME.primary,
+                          color: "#fff",
+                          fontSize: 11,
+                          "&:hover": { bgcolor: "#6C3EE3" },
+                        }}
+                      >
+                        TRY ON
+                      </Button>
+                    </Card>
+                  </Grid>
+                ))}
               </Grid>
-            ))}
-          </Grid>
+
+              {/* LOAD MORE */}
+              {hasMore && (
+                <Box sx={{ textAlign: "center", mt: 4 }}>
+                  <Button
+                    variant="outlined"
+                    disabled={loadingMore}
+                    onClick={() => loadProducts(true)}
+                  >
+                    {loadingMore ? "Loading..." : "LOAD MORE"}
+                  </Button>
+                </Box>
+              )}
+            </>
+          )}
         </Box>
       </Box>
     </Box>

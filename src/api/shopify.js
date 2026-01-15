@@ -1,17 +1,18 @@
-const STORE = import.meta.env.VITE_SHOPIFY_STORE;
-const TOKEN = import.meta.env.VITE_SHOPIFY_API_TOKEN;
-const VERSION = import.meta.env.VITE_SHOPIFY_API_VERSION;
+import { supabase } from "../lib/supabaseClient";
 
-// src/api/shopify.js
+export async function fetchProducts(pageInfo = null) {
+  const params = new URLSearchParams();
+  params.append("limit", "20");
+  if (pageInfo) params.append("page_info", pageInfo);
 
-export async function fetchShopifyProducts() {
-  const res = await fetch(
-    "https://fqpweatumhbxnuvwpgrb.supabase.co/functions/v1/shopify-products"
+  const { data, error } = await supabase.functions.invoke(
+    "shopify-products",
+    {
+      method: "GET",
+      query: Object.fromEntries(params),
+    }
   );
 
-  if (!res.ok) {
-    throw new Error("Failed to fetch Shopify products");
-  }
-
-  return await res.json();
+  if (error) throw error;
+  return data;
 }
