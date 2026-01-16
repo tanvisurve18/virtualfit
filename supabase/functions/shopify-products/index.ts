@@ -7,14 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Collection IDs (ready for future use)
-const COLLECTIONS: Record<string, string> = {
-  women: "687879225714",
-  men: "687879061874",
-  hoodies: "687879258482",
-  tshirts: "687879324018",
-};
-
 serve(async (req) => {
   // ✅ CORS preflight
   if (req.method === "OPTIONS") {
@@ -22,7 +14,7 @@ serve(async (req) => {
   }
 
   try {
-    // ✅ SAFELY read body (may be empty)
+    // ✅ Read request body
     let body: any = {};
     try {
       body = await req.json();
@@ -30,11 +22,15 @@ serve(async (req) => {
       body = {};
     }
 
-    const cursor = body.cursor ?? null;
-    const collection = body.collection ?? null;
+    console.log("📥 REQUEST BODY:", body);
 
-    // 🔐 Shopify ENV variables
-    const SHOP = Deno.env.get("SHOPIFY_STORE"); // ✅ FIXED
+    const cursor = body.cursor ?? null;
+    const requestedCategory = body.collection ?? "all";
+
+    console.log(`🎯 Fetching products for category: ${requestedCategory}`);
+
+    // 🔑 Shopify credentials
+    const SHOP = Deno.env.get("SHOPIFY_STORE");
     const TOKEN = Deno.env.get("SHOPIFY_ADMIN_TOKEN");
     const VERSION = Deno.env.get("SHOPIFY_API_VERSION");
 
@@ -42,15 +38,18 @@ serve(async (req) => {
       throw new Error("Missing Shopify environment variables");
     }
 
-    // 🧠 GraphQL query (pagination ready)
+    // 🧠 GraphQL query - Fetch ALL products
     const query = `
       {
-        products(first: 6${cursor ? `, after: "${cursor}"` : ""}) {
+        products(first: 50${cursor ? `, after: "${cursor}"` : ""}) {
           edges {
             cursor
             node {
               id
               title
+              productType
+              tags
+              vendor
               images(first: 1) {
                 edges {
                   node {
@@ -74,6 +73,7 @@ serve(async (req) => {
       }
     `;
 
+    // 📡 Call Shopify API
     const response = await fetch(
       `https://${SHOP}/admin/api/${VERSION}/graphql.json`,
       {
@@ -88,21 +88,106 @@ serve(async (req) => {
 
     const json = await response.json();
 
+    console.log("📦 SHOPIFY RESPONSE:", JSON.stringify(json, null, 2));
+
+    // Check for errors
+    if (json.errors) {
+      console.error("❌ GraphQL Errors:", json.errors);
+      throw new Error(`Shopify API error: ${JSON.stringify(json.errors)}`);
+    }
+
     if (!json?.data?.products) {
-      throw new Error("Invalid Shopify response");
+      throw new Error("No products found");
     }
 
     const edges = json.data.products.edges;
 
+    // 🏷️ Categorize products based on title, productType, and tags
+    const allProducts = edges.map((e: any) => {
+      const title = (e.node.title || "").toLowerCase();
+      const productType = (e.node.productType || "").toLowerCase();
+      const tags = (e.node.tags || []).map((t: string) => t.toLowerCase());
+      
+      let category = "other";
+      
+      // Check if it's a hoodie
+      if (
+        title.includes("hoodie") ||
+        productType.includes("hoodie") ||
+        tags.some((t: string) => t.includes("hoodie"))
+      ) {
+        category = "hoodies";
+      }
+      // Check if it's a t-shirt
+      else if (
+        title.includes("t-shirt") ||
+        title.includes("tshirt") ||
+        title.includes("shirt") ||
+        productType.includes("t-shirt") ||
+        productType.includes("tshirt") ||
+        productType.includes("shirt") ||
+        tags.some((t: string) => t.includes("t-shirt") || t.includes("tshirt") || t.includes("shirt"))
+      ) {
+        category = "tshirts";
+      }
+      
+      // Check gender (women/men)
+      const isWomen = 
+        title.includes("women") ||
+        title.includes("female") ||
+        title.includes("ladies") ||
+        productType.includes("women") ||
+        tags.some((t: string) => t.includes("women") || t.includes("female") || t.includes("ladies"));
+      
+      const isMen = 
+        title.includes("men") ||
+        title.includes("male") ||
+        productType.includes("men") ||
+        tags.some((t: string) => t.includes("men") || t.includes("male"));
+
+      return {
+        id: e.node.id,
+        title: e.node.title,
+        productType: e.node.productType || "",
+        tags: e.node.tags || [],
+        image: e.node.images.edges[0]?.node.url ?? "",
+        price: e.node.variants.edges[0]?.node.price ?? "--",
+        buyUrl: e.node.onlineStoreUl,
+        category: category,
+        isWomen: isWomen,
+        isMen: isMen,
+      };
+    });
+
+    // 🔍 Filter products based on requested category
+    let filteredProducts = allProducts;
+
+    if (requestedCategory === "women") {s
+      // Women: Only t-shirts (exclude hoodies)
+      filteredProducts = allProducts.filter(p => 
+        p.category === "tshirts" && !p.category.includes("hoodie")
+      );
+    } else if (requestedCategory === "men") {
+      // Men: Only hoodies (exclude t-shirts)
+      filteredProducts = allProducts.filter(p => 
+        p.category === "hoodies"
+      );
+    } else if (requestedCategory === "hoodies") {
+      // Hoodies: Only hoodies
+      filteredProducts = allProducts.filter(p => p.category === "hoodies");
+    } else if (requestedCategory === "tshirts") {
+      // T-shirts: Only t-shirts (exclude hoodies)
+      filteredProducts = allProducts.filter(p => p.category === "tshirts");
+    }
+
+    console.log(`✅ Found ${filteredProducts.length} products in category: ${requestedCategory}`);
+    console.log("📋 Products:", filteredProducts.map(p => `${p.title} (${p.category})`));
+
+    // 📤 Return filtered products
     return new Response(
       JSON.stringify({
-        products: edges.map((e: any) => ({
-          id: e.node.id,
-          title: e.node.title,
-          image: e.node.images.edges[0]?.node.url ?? "",
-          price: e.node.variants.edges[0]?.node.price ?? "--",
-        })),
-        nextCursor: edges.at(-1)?.cursor ?? null,
+        products: filteredProducts,
+        nextCursor: null, // Since we're filtering client-side, we get all products at once
       }),
       {
         headers: {
@@ -112,6 +197,7 @@ serve(async (req) => {
       }
     );
   } catch (err: any) {
+    console.error("❌ ERROR:", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { status: 500, headers: corsHeaders }

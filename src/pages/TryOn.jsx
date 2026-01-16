@@ -1,164 +1,104 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pose } from "@mediapipe/pose";
-import { fetchProducts } from "../api/shopify";
-
-/* ---------------- MOCK SUPABASE (unchanged) ---------------- */
-const supabase = {
-  auth: {
-    getUser: async () => ({
-      data: { user: { id: "user_123", email: "demo@virtualfit.com" } },
-      error: null,
-    }),
-  },
-  storage: {
-    from: (bucket) => ({
-      upload: async (path, blob) => ({ data: { path }, error: null }),
-      getPublicUrl: (path) => ({
-        data: { publicUrl: `https://storage.supabase.co/${bucket}/${path}` },
-      }),
-    }),
-  },
-  from: () => ({
-    insert: async (data) => ({ data, error: null }),
-  }),
-};
+import { useLocation, useNavigate } from "react-router-dom";
+import { Box, Typography, IconButton, Button, Snackbar, Alert } from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import { supabase } from "../lib/supabaseClient";
 
 export default function TryOn() {
-  /* ---------------- REFS ---------------- */
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const poseRef = useRef(null);
   const animationRef = useRef(null);
   const landmarksRef = useRef(null);
   const streamRef = useRef(null);
-  const clothingImagesRef = useRef({});
+  const productImgRef = useRef(null);
 
-  /* ---------------- STATE ---------------- */
+  const { state } = useLocation();
+  const navigate = useNavigate();
+
   const [cameraOn, setCameraOn] = useState(false);
-  const [captured, setCaptured] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [selectedClothing, setSelectedClothing] = useState(null);
-  const [selectedSize, setSelectedSize] = useState("M");
-
-  const [products, setProducts] = useState([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
-  const [imagesLoaded, setImagesLoaded] = useState({});
   const [poseDetected, setPoseDetected] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
 
-  /* ---------------- SIZE SCALE ---------------- */
-  const sizeScales = {
-    XS: 0.8,
-    S: 0.9,
-    M: 1.0,
-    L: 1.1,
-    XL: 1.2,
-    XXL: 1.3,
-  };
+  if (!state) {
+    return (
+      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Typography>No product selected</Typography>
+      </Box>
+    );
+  }
 
-  /* =========================================================
-     ✅ SHOPIFY PRODUCTS (ONLY SOURCE OF PRODUCTS)
-     ========================================================= */
+  // Load product image
   useEffect(() => {
-    fetchShopifyProducts()
-      .then((shopifyProducts) => {
-        setProducts(shopifyProducts);
-        preloadShopifyImages(shopifyProducts);
-      })
-      .catch(console.error)
-      .finally(() => setLoadingProducts(false));
-  }, []);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = state.image;
+    img.onload = () => {
+      productImgRef.current = img;
+    };
+  }, [state.image]);
 
-  /* ---------------- IMAGE PRELOAD (SHOPIFY) ---------------- */
-  const preloadShopifyImages = (items) => {
-    const loaded = {};
-    let count = 0;
-
-    items.forEach((product) => {
-      const imgUrl = product.images?.[0]?.src;
-      if (!imgUrl) return;
-
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = imgUrl;
-
-      img.onload = () => {
-        clothingImagesRef.current[product.id] = img;
-        loaded[product.id] = true;
-        count++;
-
-        if (count === items.length) {
-          setImagesLoaded(loaded);
-        }
-      };
-    });
-  };
-
-  useEffect(() => {
-    async function loadProducts() {
-      try {
-        setLoadingProducts(true);
-        const shopifyProducts = await fetchShopifyProducts();
-        setProducts(shopifyProducts);
-      } catch (err) {
-        console.error("Shopify fetch failed:", err);
-      } finally {
-        setLoadingProducts(false);
-      }
-    }
-
-    loadProducts();
-  }, []);
-
-
-  /* ---------------- MEDIAPIPE INIT ---------------- */
+  // Initialize MediaPipe Pose
   useEffect(() => {
     const pose = new Pose({
-      locateFile: (file) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
     });
 
     pose.setOptions({
-      modelComplexity: 1,
+      modelComplexity: 0,
       smoothLandmarks: true,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
 
-    pose.onResults((res) => {
-      if (res.poseLandmarks) {
-        landmarksRef.current = res.poseLandmarks;
+    pose.onResults((results) => {
+      if (results.poseLandmarks) {
+        landmarksRef.current = results.poseLandmarks;
         setPoseDetected(true);
       }
     });
 
     poseRef.current = pose;
-    return () => pose.close();
+    return () => {
+      if (poseRef.current) {
+        poseRef.current.close();
+      }
+    };
   }, []);
 
-  /* ---------------- CAMERA ---------------- */
   const startCamera = async () => {
-    if (cameraOn) return;
+    try {
+      setLoading(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: "user",
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+      });
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
-    });
-
-    streamRef.current = stream;
-    videoRef.current.srcObject = stream;
-    videoRef.current.onloadedmetadata = () => {
-      videoRef.current.play();
-      setCameraOn(true);
-      drawLoop();
-    };
+      streamRef.current = stream;
+      videoRef.current.srcObject = stream;
+      
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current.play();
+        setCameraOn(true);
+        setLoading(false);
+        drawLoop();
+      };
+    } catch (err) {
+      console.error("Camera error:", err);
+      setLoading(false);
+      setSnackbar({ open: true, message: "Failed to access camera", severity: "error" });
+    }
   };
 
-  const stopCamera = () => {
-    cancelAnimationFrame(animationRef.current);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    setCameraOn(false);
-  };
-
-  /* ---------------- DRAW LOOP ---------------- */
   const drawLoop = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -172,536 +112,429 @@ export default function TryOn() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
+    // Draw mirrored video
     ctx.save();
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     ctx.restore();
 
-    if (
-      selectedClothing &&
-      clothingImagesRef.current[selectedClothing.id]
-    ) {
-      drawClothing(ctx);
+    // Draw product overlay if pose detected
+    if (landmarksRef.current && productImgRef.current) {
+      const landmarks = landmarksRef.current;
+      
+      // Get key body points
+      const leftShoulder = landmarks[11];
+      const rightShoulder = landmarks[12];
+      const leftHip = landmarks[23];
+      const rightHip = landmarks[24];
+
+      if (leftShoulder && rightShoulder && leftHip && rightHip) {
+        // Calculate center points (mirrored)
+        const shoulderCenterX = ((1 - leftShoulder.x) + (1 - rightShoulder.x)) / 2 * canvas.width;
+        const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2 * canvas.height;
+        
+        const hipCenterY = (leftHip.y + rightHip.y) / 2 * canvas.height;
+        
+        // Calculate body dimensions
+        const shoulderWidth = Math.abs((leftShoulder.x - rightShoulder.x) * canvas.width);
+        const torsoHeight = Math.abs(hipCenterY - shoulderCenterY);
+        
+        // Product dimensions
+        const productWidth = shoulderWidth * 2.4;
+        const productHeight = torsoHeight * 2.0;
+        
+        // Position
+        const productX = shoulderCenterX - productWidth / 2;
+        const productY = shoulderCenterY - productHeight * 0.15;
+        
+        // Calculate body tilt angle
+        const bodyAngle = Math.atan2(
+          leftShoulder.y - rightShoulder.y,
+          leftShoulder.x - rightShoulder.x
+        );
+
+        ctx.save();
+        
+        // Apply rotation around center point
+        ctx.translate(shoulderCenterX, shoulderCenterY);
+        ctx.rotate(-bodyAngle);
+        ctx.translate(-shoulderCenterX, -shoulderCenterY);
+        
+        // Draw with transparency
+        ctx.globalAlpha = 0.8;
+        
+        // Draw the product
+        ctx.drawImage(
+          productImgRef.current,
+          productX,
+          productY,
+          productWidth,
+          productHeight
+        );
+        
+        ctx.restore();
+      }
     }
 
+    // Send frame to pose detection
     await poseRef.current.send({ image: video });
+
     animationRef.current = requestAnimationFrame(drawLoop);
   };
 
-  /* ---------------- CLOTHING OVERLAY ---------------- */
-  const drawClothing = (ctx) => {
-    if (!landmarksRef.current) return;
+  const captureImage = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const img = clothingImagesRef.current[selectedClothing.id];
-    if (!img) return;
-
-    const lm = landmarksRef.current;
-    const ls = lm[11];
-    const rs = lm[12];
-    const lh = lm[23];
-    const rh = lm[24];
-
-    if (!ls || !rs || !lh || !rh) return;
-
-    const w = Math.abs(rs.x - ls.x) * canvasRef.current.width * 1.8;
-    const h = Math.abs(lh.y - ls.y) * canvasRef.current.height * 1.4;
-    const x = (1 - (ls.x + rs.x) / 2) * canvasRef.current.width - w / 2;
-    const y = ls.y * canvasRef.current.height + 10;
-
-    ctx.drawImage(img, x, y, w, h);
+    // Capture the current canvas frame
+    const imageDataUrl = canvas.toDataURL("image/png");
+    setCapturedImage(imageDataUrl);
+    
+    // Stop the camera and animation
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    setCameraOn(false);
   };
 
+  const retakeImage = () => {
+    setCapturedImage(null);
+    startCamera();
+  };
 
+  const saveToDatabase = async () => {
+    if (!capturedImage) return;
 
+    try {
+      setSaving(true);
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setSnackbar({ open: true, message: "Please log in to save", severity: "error" });
+        setSaving(false);
+        return;
+      }
+
+      // Convert base64 to blob
+      const base64Response = await fetch(capturedImage);
+      const blob = await base64Response.blob();
+      
+      // Create unique filename
+      const fileName = `tryon_${user.id}_${Date.now()}.png`;
+      
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("tryon-images")
+        .upload(fileName, blob, {
+          contentType: "image/png",
+          cacheControl: "3600"
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from("tryon-images")
+        .getPublicUrl(fileName);
+
+      // Save to database
+      const { error: dbError } = await supabase
+        .from("tryon_history")
+        .insert({
+          user_id: user.id,
+          item_id: state.title,
+          image_url: publicUrl,
+          action: "captured"
+        });
+
+      if (dbError) throw dbError;
+
+      setSnackbar({ 
+        open: true, 
+        message: "Successfully saved to Try-On History!", 
+        severity: "success" 
+      });
+
+      // Navigate back after short delay
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 1500);
+
+    } catch (error) {
+      console.error("Error saving:", error);
+      setSnackbar({ 
+        open: true, 
+        message: "Failed to save image: " + error.message, 
+        severity: "error" 
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-      padding: "20px",
-      fontFamily: "system-ui, -apple-system, sans-serif"
-    }}>
-      {/* Header */}
-      <div style={{
-        maxWidth: "1400px",
-        margin: "0 auto 30px",
-        textAlign: "center"
-      }}>
-        <h1 style={{
-          fontSize: "2.5rem",
-          fontWeight: "800",
-          color: "#fff",
-          margin: "0 0 10px",
-          textShadow: "0 2px 10px rgba(0,0,0,0.2)"
-        }}>
-          VirtualFit Try-On Studio
-        </h1>
-        <p style={{
-          color: "rgba(255,255,255,0.9)",
-          fontSize: "1.1rem"
-        }}>
-          See yourself in real clothing instantly with AI-powered virtual try-on
-        </p>
-      </div>
-
-      <div style={{
-        maxWidth: "1400px",
-        margin: "0 auto",
-        display: "grid",
-        gridTemplateColumns: "1fr 380px",
-        gap: "20px",
-        alignItems: "start"
-      }}>
-        {/* Main Camera Section */}
-        <div style={{
-          background: "#fff",
-          borderRadius: "20px",
-          padding: "20px",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
-        }}>
-          {/* Status Indicators */}
-          <div style={{
-            marginBottom: "15px",
+    <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        p: 2,
+      }}
+    >
+      {/* Header with Product Info */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 2,
+          mb: 2,
+          maxWidth: 900,
+          mx: "auto",
+        }}
+      >
+        <IconButton
+          onClick={() => navigate(-1)}
+          sx={{
+            bgcolor: "white",
+            "&:hover": { bgcolor: "rgba(255,255,255,0.9)" },
+          }}
+        >
+          <ArrowBackIcon />
+        </IconButton>
+        
+        <Box
+          sx={{
+            flex: 1,
+            bgcolor: "white",
+            p: 2,
+            borderRadius: 2,
             display: "flex",
-            gap: "10px",
-            flexWrap: "wrap"
-          }}>
-            {cameraOn && (
-              <div style={{
-                padding: "6px 12px",
-                background: "#4CAF50",
-                color: "#fff",
-                borderRadius: "20px",
-                fontSize: "0.85rem",
-                fontWeight: "600"
-              }}>
-                🎥 Camera Active
-              </div>
-            )}
-            {poseDetected && (
-              <div style={{
-                padding: "6px 12px",
-                background: "#2196F3",
-                color: "#fff",
-                borderRadius: "20px",
-                fontSize: "0.85rem",
-                fontWeight: "600"
-              }}>
-                ✅ Body Detected
-              </div>
-            )}
-            {selectedClothing && imagesLoaded[selectedClothing.id] && (
-              <div style={{
-                padding: "6px 12px",
-                background: "#FF9800",
-                color: "#fff",
-                borderRadius: "20px",
-                fontSize: "0.85rem",
-                fontWeight: "600"
-              }}>
-                👕 Clothing Loaded
-              </div>
-            )}
-          </div>
+            alignItems: "center",
+            gap: 2,
+          }}
+        >
+          <img
+            src={state.image}
+            alt={state.title}
+            style={{
+              width: 60,
+              height: 60,
+              objectFit: "contain",
+              borderRadius: 8,
+              border: "1px solid #eee",
+            }}
+          />
+          <Box>
+            <Typography fontWeight={700} fontSize={16}>
+              {state.title}
+            </Typography>
+            <Typography color="text.secondary" fontSize={14}>
+              ₹{state.price}
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            onClick={() => window.open(state.buyUrl, "_blank")}
+          >
+            BUY ON WEBSITE
+          </Button>
+        </Box>
+      </Box>
 
-          {/* Selected Item Info */}
-          {selectedClothing && (
-            <div style={{
-              marginBottom: "15px",
-              padding: "12px 16px",
-              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-              borderRadius: "12px",
-              color: "#fff",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center"
-            }}>
-              <div>
-                <div style={{ fontSize: "0.85rem", opacity: 0.9 }}>Trying On</div>
-                <div style={{ fontSize: "1.1rem", fontWeight: "700" }}>
-                  {selectedClothing.name}
-                </div>
-              </div>
-              <div style={{
-                fontSize: "1.3rem",
-                fontWeight: "700"
-              }}>
-                {selectedClothing.price}
-              </div>
-            </div>
-          )}
-
-          {/* Size Controls */}
-          {selectedClothing && (
-            <div style={{
-              marginBottom: "20px",
-              padding: "15px",
-              background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
-              borderRadius: "12px"
-            }}>
-              <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "12px"
-              }}>
-                <span style={{ fontWeight: "600", fontSize: "0.95rem" }}>
-                  Select Size:
-                </span>
-                <span style={{
-                  background: "#667eea",
-                  color: "#fff",
-                  padding: "4px 12px",
-                  borderRadius: "20px",
-                  fontSize: "0.85rem",
-                  fontWeight: "700"
-                }}>
-                  {selectedSize}
-                </span>
-              </div>
-              <div style={{
-                display: "flex",
-                gap: "8px",
-                flexWrap: "wrap"
-              }}>
-                {["XS", "S", "M", "L", "XL", "XXL"].map(size => (
-                  <button
-                    key={size}
-                    onClick={() => setSelectedSize(size)}
-                    style={{
-                      padding: "8px 16px",
-                      border: selectedSize === size ? "2px solid #667eea" : "2px solid #ddd",
-                      background: selectedSize === size ? "#667eea" : "#fff",
-                      color: selectedSize === size ? "#fff" : "#333",
-                      borderRadius: "8px",
-                      cursor: "pointer",
-                      fontWeight: "600",
-                      fontSize: "0.9rem",
-                      transition: "all 0.2s"
-                    }}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Camera Display */}
-          <div style={{
+      {/* Camera Section */}
+      <Box
+        sx={{
+          bgcolor: "white",
+          borderRadius: 3,
+          p: 2,
+          maxWidth: 900,
+          mx: "auto",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+        }}
+      >
+        <Box
+          sx={{
             position: "relative",
             width: "100%",
             aspectRatio: "4/3",
-            background: "#000",
-            borderRadius: "16px",
+            bgcolor: "#000",
+            borderRadius: 2,
             overflow: "hidden",
-            marginBottom: "20px"
-          }}>
-            <video 
-              ref={videoRef} 
-              playsInline 
-              muted 
-              style={{ display: "none" }} 
-            />
-            <canvas 
-              ref={canvasRef} 
-              style={{ 
-                width: "100%", 
+          }}
+        >
+          {capturedImage ? (
+            <img 
+              src={capturedImage} 
+              alt="Captured" 
+              style={{
+                width: "100%",
                 height: "100%",
-                objectFit: "contain"
-              }} 
+                objectFit: "contain",
+              }}
             />
-            
-            {!cameraOn && !captured && (
-              <div style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "rgba(0,0,0,0.7)",
-                color: "#fff"
-              }}>
-                <div style={{ fontSize: "4rem", marginBottom: "20px" }}>📷</div>
-                <h3 style={{ marginBottom: "10px" }}>Camera Ready</h3>
-                <p style={{ opacity: 0.8 }}>Click below to start your virtual try-on</p>
-              </div>
-            )}
-
-            {saving && (
-              <div style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "rgba(0,0,0,0.8)",
-                color: "#fff"
-              }}>
-                <div style={{ 
-                  width: "50px", 
-                  height: "50px", 
-                  border: "4px solid rgba(255,255,255,0.3)",
-                  borderTop: "4px solid #fff",
-                  borderRadius: "50%",
-                  animation: "spin 1s linear infinite"
-                }} />
-                <p style={{ marginTop: "20px", fontSize: "1.1rem" }}>
-                  Saving to your closet...
-                </p>
-                <style>{`
-                  @keyframes spin {
-                    to { transform: rotate(360deg); }
-                  }
-                `}</style>
-              </div>
-            )}
-          </div>
-
-          {/* Camera Controls */}
-          <div style={{
-            display: "flex",
-            gap: "12px",
-            justifyContent: "center"
-          }}>
-            {!cameraOn && !captured && (
-              <button
-                onClick={startCamera}
-                disabled={!selectedClothing || loadingProducts}
-                style={{
-                  padding: "14px 32px",
-                  background: (selectedClothing && !loadingProducts)
-                    ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-                    : "#ccc",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "12px",
-                  fontSize: "1rem",
-                  fontWeight: "700",
-                  cursor: (selectedClothing && !loadingProducts) ? "pointer" : "not-allowed",
-                  boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
-                  transition: "all 0.3s"
-                }}
-              >
-                🎥 START CAMERA
-              </button>
-            )}
-
-            {cameraOn && !captured && (
-              <button
-                onClick={capture}
-                disabled={!poseDetected}
-                style={{
-                  padding: "14px 32px",
-                  background: poseDetected 
-                    ? "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"
-                    : "#ccc",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "12px",
-                  fontSize: "1rem",
-                  fontWeight: "700",
-                  cursor: poseDetected ? "pointer" : "not-allowed",
-                  boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
-                  transition: "all 0.3s"
-                }}
-              >
-                📸 CAPTURE PHOTO
-              </button>
-            )}
-
-            {captured && (
-              <>
-                <button
-                  onClick={retake}
-                  style={{
-                    padding: "14px 32px",
-                    background: "#fff",
-                    color: "#667eea",
-                    border: "2px solid #667eea",
-                    borderRadius: "12px",
-                    fontSize: "1rem",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    transition: "all 0.3s"
-                  }}
-                >
-                  🔄 RETAKE
-                </button>
-                <button
-                  onClick={handleDone}
-                  style={{
-                    padding: "14px 32px",
-                    background: "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "12px",
-                    fontSize: "1rem",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    boxShadow: "0 4px 15px rgba(0,0,0,0.2)"
-                  }}
-                >
-                  ✅ VIEW IN DASHBOARD
-                </button>
-              </>
-            )}
-          </div>
-
-          {!selectedClothing && (
-            <div style={{
-              marginTop: "20px",
-              padding: "15px",
-              background: "#fff3cd",
-              border: "1px solid #ffc107",
-              borderRadius: "8px",
-              textAlign: "center",
-              color: "#856404"
-            }}>
-              ⚠️ Please select a clothing item from the right panel to begin
-            </div>
-          )}
-
-          {cameraOn && !poseDetected && (
-            <div style={{
-              marginTop: "20px",
-              padding: "15px",
-              background: "#e3f2fd",
-              border: "1px solid #2196F3",
-              borderRadius: "8px",
-              textAlign: "center",
-              color: "#1565C0"
-            }}>
-              👤 Position yourself in front of the camera. Make sure your shoulders and upper body are visible.
-            </div>
-          )}
-        </div>
-
-        {/* Clothing Selection Panel */}
-        <div style={{
-          background: "#fff",
-          borderRadius: "20px",
-          padding: "20px",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-          maxHeight: "calc(100vh - 180px)",
-          overflowY: "auto"
-        }}>
-          <h2 style={{
-            fontSize: "1.3rem",
-            fontWeight: "700",
-            marginBottom: "20px",
-            color: "#333"
-          }}>
-            Choose Your Outfit
-          </h2>
-
-          {loadingProducts ? (
-            <div style={{ textAlign: "center", padding: "40px" }}>
-              <div style={{ fontSize: "2rem" }}>⏳</div>
-              <p>Loading products...</p>
-            </div>
           ) : (
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: "12px"
-            }}>
-              {products.map((product) => (
-                <div
-                  key={product.id}
-                  onClick={() => setSelectedClothing(product)}
-                  style={{
-                    border: selectedClothing?.id === product.id
-                      ? "3px solid #667eea"
-                      : "2px solid #e0e0e0",
-                    borderRadius: "12px",
-                    padding: "12px",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    background: selectedClothing?.id === product.id
-                      ? "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)"
-                      : "#fff",
-                    display: "flex",
-                    gap: "12px",
-                    alignItems: "center",
-                  }}
-                >
-                  {/* IMAGE */}
-                  <div
-                    style={{
-                      width: "80px",
-                      height: "80px",
-                      borderRadius: "8px",
-                      overflow: "hidden",
-                      flexShrink: 0,
-                      background: "#f5f5f5",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <img
-                      src={product.images?.[0]?.src}
-                      alt={product.title}
-                      style={{
-                        maxWidth: "100%",
-                        maxHeight: "100%",
-                        objectFit: "contain",
-                      }}
-                    />
-                  </div>
-
-                  {/* DETAILS */}
-                  <div style={{ flex: 1 }}>
-                    <h3
-                      style={{
-                        fontSize: "0.95rem",
-                        fontWeight: "600",
-                        margin: "0 0 4px",
-                        color: "#333",
-                      }}
-                    >
-                      {product.title}
-                    </h3>
-
-                    {product.product_type && (
-                      <span
-                        style={{
-                          fontSize: "0.75rem",
-                          padding: "2px 8px",
-                          background: "#e3f2fd",
-                          color: "#1976d2",
-                          borderRadius: "4px",
-                          fontWeight: "600",
-                          display: "inline-block",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        {product.product_type}
-                      </span>
-                    )}
-
-                    <p
-                      style={{
-                        fontSize: "1rem",
-                        fontWeight: "700",
-                        color: "#667eea",
-                        margin: 0,
-                      }}
-                    >
-                      ₹{product.variants?.[0]?.price}
-                    </p>
-                  </div>
-                </div>
-              ))}
-
-            </div>
+            <>
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                style={{ display: "none" }}
+              />
+              <canvas
+                ref={canvasRef}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                }}
+              />
+            </>
           )}
-        </div>
-      </div>
-    </div>
+          
+          {/* Pose indicator */}
+          {cameraOn && !capturedImage && (
+            <Box
+              sx={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                bgcolor: poseDetected ? "success.main" : "warning.main",
+                color: "white",
+                px: 2,
+                py: 0.5,
+                borderRadius: 2,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {poseDetected ? "✓ Pose Detected" : "⚠ Stand in frame"}
+            </Box>
+          )}
+        </Box>
+
+        <Box sx={{ textAlign: "center", mt: 3 }}>
+          {!cameraOn && !capturedImage && (
+            <Button
+              onClick={startCamera}
+              disabled={loading}
+              variant="contained"
+              size="large"
+              sx={{
+                px: 4,
+                py: 1.5,
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                fontWeight: 700,
+                fontSize: "1rem",
+                "&:hover": {
+                  background: "linear-gradient(135deg, #5568d3 0%, #653a8b 100%)",
+                }
+              }}
+            >
+              {loading ? "Loading..." : "🎥 START CAMERA"}
+            </Button>
+          )}
+          
+          {cameraOn && !capturedImage && (
+            <Box sx={{ display: "flex", gap: 2, justifyContent: "center", flexDirection: "column", alignItems: "center" }}>
+              <Button
+                onClick={captureImage}
+                variant="contained"
+                size="large"
+                startIcon={<CameraAltIcon />}
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  fontWeight: 700,
+                  minWidth: 200,
+                  "&:hover": {
+                    background: "linear-gradient(135deg, #5568d3 0%, #653a8b 100%)",
+                  }
+                }}
+              >
+                CAPTURE
+              </Button>
+              <Typography color="text.secondary" fontSize={14}>
+                Move to see the product on your body
+              </Typography>
+            </Box>
+          )}
+
+          {capturedImage && (
+            <Box sx={{ display: "flex", gap: 2, justifyContent: "center" }}>
+              <Button
+                onClick={retakeImage}
+                variant="outlined"
+                size="large"
+                startIcon={<RestartAltIcon />}
+                sx={{ 
+                  px: 4, 
+                  py: 1.5, 
+                  fontWeight: 700,
+                  borderColor: "#667eea",
+                  color: "#667eea",
+                  "&:hover": {
+                    borderColor: "#5568d3",
+                    bgcolor: "rgba(102, 126, 234, 0.04)"
+                  }
+                }}
+              >
+                RETAKE
+              </Button>
+              <Button
+                onClick={saveToDatabase}
+                variant="contained"
+                size="large"
+                disabled={saving}
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  fontWeight: 700,
+                  "&:hover": {
+                    background: "linear-gradient(135deg, #5568d3 0%, #653a8b 100%)",
+                  }
+                }}
+              >
+                {saving ? "SAVING..." : "SAVE TO HISTORY"}
+              </Button>
+            </Box>
+          )}
+        </Box>
+      </Box>
+          alert("Try-On saved successfully!");
+          navigate("/dashboard?tab=tryon-history");
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          severity={snackbar.severity}
+          sx={{ width: "100%" }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 }

@@ -12,7 +12,7 @@ import HomePage from "./components/HomePage";
 import Login from "./components/Login";
 import Signup from "./components/Signup";
 import Dashboard from "./components/Dashboard";
-
+import TryOnHistory from "./components/TryOnHistory";
 import TryOn from "./pages/TryOn";
 
 // 🔐 Auth pages
@@ -62,7 +62,7 @@ export default function App() {
 
         {/* Virtual Try-On */}
         <Route path="/tryon" element={<TryOn />} />
-
+        <Route path="/tryon-history" element={<TryOnHistory />} />
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

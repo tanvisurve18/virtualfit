@@ -12,112 +12,143 @@ import {
 
 import Sidebar from "./Sidebar";
 import { supabase } from "../lib/supabaseClient";
+import { useNavigate } from "react-router-dom";
 
 /* ---------------- THEME ---------------- */
 const THEME = {
-  primary: "#7B4BFF",
   gradient:
     "linear-gradient(90deg, rgba(219,233,255,1) 0%, rgba(227,211,247,1) 50%, rgba(248,217,227,1) 100%)",
   pageBg: "#F6F7FB",
 };
-const COLLECTIONS = {
-  women: "687879225714",
-  men: "687879061874",
-  hoodies: "687879258482",
-  tshirts: "687879324018",
-};
 
+/* ---------------- COLLECTION KEYS ---------------- */
+const COLLECTIONS = ["women", "men", "hoodies", "tshirts"];
 
+/* ================= DASHBOARD ================= */
 export default function Dashboard() {
   const [products, setProducts] = useState([]);
   const [cursor, setCursor] = useState(null);
+  const [activeCollection, setActiveCollection] = useState("women");
+  const [userName, setUserName] = useState("User");
+
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState(null);
-  const [nextCursor, setNextCursor] = useState(null);
-  const [activeCollection, setActiveCollection] = useState("women");
 
-  /* ---------------- INITIAL LOAD ---------------- */
-  useEffect(() => {
-    loadProducts(false);
-  }, []);
+  const navigate = useNavigate();
 
-  async function loadProducts(isLoadMore = false, collection = activeCollection) {
+  /* ---------------- FETCH USER NAME ---------------- */
+  async function fetchUserName() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Try to get user metadata or profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, name")
+        .eq("id", user.id)
+        .single();
+
+      if (profile) {
+        setUserName(profile.full_name || profile.name || user.email?.split("@")[0] || "User");
+      } else {
+        // Fallback to user metadata
+        setUserName(
+          user.user_metadata?.full_name || 
+          user.user_metadata?.name || 
+          user.email?.split("@")[0] || 
+          "User"
+        );
+      }
+    } catch (err) {
+      console.error("Error fetching user name:", err);
+    }
+  }
+
+  function handleTryOn(product) {
+    console.log("Navigating to tryon with product:", product);
+
+    navigate("/tryon", {
+      state: {
+        image: product.image,
+        title: product.title,
+        price: product.price,
+        buyUrl: product.buyUrl,
+      },
+    });
+  }
+
+  /* ---------------- FETCH PRODUCTS ---------------- */
+  async function loadProducts({ isLoadMore = false, collection }) {
     try {
       if (isLoadMore) setLoadingMore(true);
       else setLoading(true);
 
-      const { data, error } = await supabase.functions.invoke(
-        "shopify-products",
-        {
-          body: {
-            cursor: isLoadMore ? cursor : null,
-            collection,
-          },
-        }
-      );
+      setError(null);
 
-      if (error) throw error;
+      console.log("CALLING WITH COLLECTION 👉", collection);
 
-      const newProducts = data.products || [];
+      const response = await supabase.functions.invoke("shopify-products", {
+        body: {
+          collection,
+          cursor: isLoadMore ? cursor : null,
+        },
+      });
+
+      console.log("FUNCTION RESPONSE 👉", response);
+
+      if (response.error) throw response.error;
+
+      const data = response.data;
+      console.log("PRODUCTS RECEIVED 👉", data);
 
       setProducts((prev) =>
-        isLoadMore ? [...prev, ...newProducts] : newProducts
+        isLoadMore ? [...prev, ...data.products] : data.products
       );
 
       setCursor(data.nextCursor);
-      setHasMore(Boolean(data.nextCursor));
     } catch (err) {
       console.error("Failed to load products:", err);
+      setError(err.message);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
   }
 
-  /* ---------------- LOADING ---------------- */
-  if (loading) {
-    return (
-      <Box sx={{ p: 4 }}>
-        <CircularProgress />
-        <Typography sx={{ mt: 2 }}>Loading products…</Typography>
-      </Box>
-    );
-  }
+  /* ---------------- INITIAL LOAD ---------------- */
+  useEffect(() => {
+    fetchUserName();
+    loadProducts({ collection: activeCollection });
+  }, []);
 
-  /* ---------------- ERROR ---------------- */
-  if (error) {
-    return (
-      <Box sx={{ p: 4 }}>
-        <Typography color="error">{error}</Typography>
-      </Box>
-    );
-  }
-
+  /* ---------------- TAB CHANGE ---------------- */
   function handleCollectionChange(col) {
+    console.log("TAB CLICKED 👉", col);
+
     setActiveCollection(col);
     setProducts([]);
     setCursor(null);
-    setHasMore(true);
-    loadProducts(false, col);
-  }
 
+    loadProducts({
+      collection: col,
+      isLoadMore: false,
+    });
+  }
 
   /* ================= UI ================= */
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: THEME.pageBg }}>
-      <Sidebar />
+      <Sidebar userName={userName} />
 
       <Box sx={{ ml: { xs: "70px", md: "240px" }, p: 3 }}>
         {/* HEADER */}
         <Box sx={{ p: 3, borderRadius: 3, background: THEME.gradient }}>
           <Typography sx={{ fontSize: 22, fontWeight: 800 }}>
-            Hi there 👋
+            Hi {userName} 👋
           </Typography>
-          <Typography>
-            Welcome back — your wardrobe is ready.
-          </Typography>
+          <Typography>Welcome back — your wardrobe is ready.</Typography>
         </Box>
 
         {/* NEW ARRIVALS */}
@@ -125,105 +156,112 @@ export default function Dashboard() {
           <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 2 }}>
             New Arrivals ✨
           </Typography>
-          {/* COLLECTION BUTTONS */}
+
+          {/* COLLECTION TABS */}
           <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
-            <Button
-              variant={activeCollection === "women" ? "contained" : "outlined"}
-              onClick={() => handleCollectionChange("women")}
-            >
-              WOMEN
-            </Button>
-
-            <Button
-              variant={activeCollection === "men" ? "contained" : "outlined"}
-              onClick={() => handleCollectionChange("men")}
-            >
-              MEN
-            </Button>
-
-            <Button
-              variant={activeCollection === "hoodies" ? "contained" : "outlined"}
-              onClick={() => handleCollectionChange("hoodies")}
-            >
-              HOODIES
-            </Button>
-
-            <Button
-              variant={activeCollection === "tshirts" ? "contained" : "outlined"}
-              onClick={() => handleCollectionChange("tshirts")}
-            >
-              T-SHIRTS
-            </Button>
+            {COLLECTIONS.map((col) => (
+              <Button
+                key={col}
+                variant={activeCollection === col ? "contained" : "outlined"}
+                onClick={() => handleCollectionChange(col)}
+              >
+                {col.toUpperCase()}
+              </Button>
+            ))}
           </Box>
 
-          {products.length === 0 ? (
-            <Typography>No products found</Typography>
-          ) : (
-            <>
-              <Grid container spacing={2}>
-                {products && products.length > 0 && products.map((product) => (
-                  <Grid item xs={6} sm={4} md={3} lg={2} key={product.id}>
-                    <Card sx={{ borderRadius: 2 }}>
-                      <CardMedia
-                        component="img"
-                        image={product.image}
-                        alt={product.title}
-                        sx={{
-                          height: 140,
-                          objectFit: "contain",
-                          p: 1,
-                          bgcolor: "#fff",
-                        }}
-                      />
+          {/* LOADING */}
+          {loading && (
+            <Box sx={{ mt: 3, textAlign: "center" }}>
+              <CircularProgress />
+            </Box>
+          )}
 
-                      <CardContent sx={{ p: 1 }}>
-                        <Typography
-                          fontSize={13}
-                          fontWeight={700}
-                          noWrap
-                        >
-                          {product.title}
-                        </Typography>
+          {/* ERROR */}
+          {error && (
+            <Typography color="error" sx={{ mt: 2 }}>
+              Error: {error}
+            </Typography>
+          )}
 
-                        <Typography
-                          fontSize={12}
-                          color="text.secondary"
-                        >
-                          ₹{product.price}
-                        </Typography>
-                      </CardContent>
+          {/* NO PRODUCTS */}
+          {!loading && products.length === 0 && !error && (
+            <Typography sx={{ mt: 2 }}>
+              No products found in this collection
+            </Typography>
+          )}
 
-                      <Button
-                        size="small"
-                        fullWidth
-                        sx={{
-                          m: 1,
-                          bgcolor: THEME.primary,
-                          color: "#fff",
-                          fontSize: 11,
-                          "&:hover": { bgcolor: "#6C3EE3" },
-                        }}
-                      >
-                        TRY ON
-                      </Button>
-                    </Card>
-                  </Grid>
-                ))}
-              </Grid>
+          {/* PRODUCTS GRID */}
+          {!loading && products.length > 0 && (
+            <Grid container spacing={2}>
+              {products.map((product) => (
+                <Grid item xs={6} sm={4} md={3} lg={2} key={product.id}>
+                  <Card sx={{ borderRadius: 2 }}>
+                    <CardMedia
+                      component="img"
+                      image={product.image || "/placeholder.png"}
+                      alt={product.title}
+                      sx={{
+                        height: 160,
+                        objectFit: "contain",
+                        bgcolor: "#fff",
+                        p: 1,
+                      }}
+                    />
 
-              {/* LOAD MORE */}
-              {hasMore && (
-                <Box sx={{ textAlign: "center", mt: 4 }}>
-                  <Button
-                    variant="outlined"
-                    disabled={loadingMore}
-                    onClick={() => loadProducts(true)}
-                  >
-                    {loadingMore ? "Loading..." : "LOAD MORE"}
-                  </Button>
-                </Box>
-              )}
-            </>
+                    <CardContent>
+                      <Typography fontSize={14} fontWeight={700} noWrap>
+                        {product.title}
+                      </Typography>
+
+                      <Typography fontSize={13} color="text.secondary">
+                        ₹{product.price}
+                      </Typography>
+                    </CardContent>
+
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      sx={{ mt: 1 }}
+                      onClick={() => handleTryOn(product)}
+                    >
+                      TRY ON
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ mt: 1 }}
+                      onClick={() => window.open(product.buyUrl, "_blank")}
+                    >
+                      BUY
+                    </Button>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+
+          {/* LOAD MORE */}
+          {cursor && !loadingMore && (
+            <Box sx={{ mt: 4, textAlign: "center" }}>
+              <Button
+                variant="outlined"
+                onClick={() =>
+                  loadProducts({
+                    collection: activeCollection,
+                    isLoadMore: true,
+                  })
+                }
+              >
+                Load More
+              </Button>
+            </Box>
+          )}
+
+          {loadingMore && (
+            <Box sx={{ mt: 3, textAlign: "center" }}>
+              <CircularProgress size={24} />
+            </Box>
           )}
         </Box>
       </Box>

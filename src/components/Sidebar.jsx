@@ -12,8 +12,9 @@ import {
   Logout,
 } from "@mui/icons-material";
 import { useNavigate, useLocation } from "react-router-dom";
+import { supabase } from "../lib/supabaseClient";
 
-export default function Sidebar({ storedUser }) {
+export default function Sidebar({ userName = "User" }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -21,15 +22,21 @@ export default function Sidebar({ storedUser }) {
 
   const menuItems = [
     { label: "Overview", icon: HomeIcon, path: "/dashboard" },
-    { label: "Saved Looks", icon: BookmarkIcon, path: "/dashboard?saved=1" },
-    { label: "Try-On History", icon: HistoryIcon, path: "/dashboard?tab=history" },
-    { label: "Recommendations", icon: CameraIcon, path: "/dashboard?tab=recs" },
+    { label: "Saved Looks", icon: BookmarkIcon, path: "/saved-looks" },
+    { label: "Try-On History", icon: HistoryIcon, path: "/tryon-history" },
+    { label: "Recommendations", icon: CameraIcon, path: "/recommendations" },
   ];
 
-  const handleLogout = () => {
-    localStorage.removeItem("vf_token");
-    localStorage.removeItem("vf_user");
-    navigate("/");
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      localStorage.removeItem("vf_token");
+      localStorage.removeItem("vf_user");
+      navigate("/");
+    } catch (error) {
+      console.error("Logout error:", error);
+      navigate("/");
+    }
   };
 
   return (
@@ -66,12 +73,12 @@ export default function Sidebar({ storedUser }) {
             fontSize: 22,
           }}
         >
-          {(storedUser?.name || "U").charAt(0).toUpperCase()}
+          {userName.charAt(0).toUpperCase()}
         </Avatar>
 
         {!collapsed && (
           <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#2B2345" }}>
-            {storedUser?.name || "User Name"}
+            {userName}
           </Typography>
         )}
       </Box>
@@ -79,7 +86,7 @@ export default function Sidebar({ storedUser }) {
       {/* MENU ITEMS */}
       <Box sx={{ flexGrow: 1, mt: 2 }}>
         {menuItems.map((item, index) => {
-          const isActive = location.pathname + location.search === item.path;
+          const isActive = location.pathname === item.path;
 
           return (
             <Box
