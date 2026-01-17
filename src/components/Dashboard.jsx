@@ -14,6 +14,10 @@ import Sidebar from "./Sidebar";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 
+/* 🔗 AMAZON EDGE FUNCTION */
+const AMAZON_PRODUCTS_API =
+  "https://fqpweatumhbxnuvwpgrb.supabase.co/functions/v1/amazon-products";
+
 /* ---------------- THEME ---------------- */
 const THEME = {
   gradient:
@@ -21,18 +25,11 @@ const THEME = {
   pageBg: "#F6F7FB",
 };
 
-/* ---------------- COLLECTION KEYS ---------------- */
-const COLLECTIONS = ["women", "men", "hoodies", "tshirts"];
-
 /* ================= DASHBOARD ================= */
 export default function Dashboard() {
   const [products, setProducts] = useState([]);
-  const [cursor, setCursor] = useState(null);
-  const [activeCollection, setActiveCollection] = useState("women");
   const [userName, setUserName] = useState("User");
-
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
 
   const navigate = useNavigate();
@@ -40,102 +37,57 @@ export default function Dashboard() {
   /* ---------------- FETCH USER NAME ---------------- */
   async function fetchUserName() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) return;
 
-      // Try to get user metadata or profile
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name, name")
-        .eq("id", user.id)
-        .single();
-
-      if (profile) {
-        setUserName(profile.full_name || profile.name || user.email?.split("@")[0] || "User");
-      } else {
-        // Fallback to user metadata
-        setUserName(
-          user.user_metadata?.full_name || 
-          user.user_metadata?.name || 
-          user.email?.split("@")[0] || 
+      setUserName(
+        user.user_metadata?.full_name ||
+          user.email?.split("@")[0] ||
           "User"
-        );
-      }
+      );
     } catch (err) {
-      console.error("Error fetching user name:", err);
+      console.error("User fetch failed", err);
+      setUserName("User");
+    }
+  }
+  /* ---------------- FETCH AMAZON PRODUCTS ---------------- */
+  async function loadProducts() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await fetch(AMAZON_PRODUCTS_API);
+      const data = await res.json();
+
+      setProducts(data || []);
+    } catch (err) {
+      console.error("Failed to load Amazon products:", err);
+      setError("Failed to load products");
+    } finally {
+      setLoading(false);
     }
   }
 
+  /* ---------------- TRY ON ---------------- */
   function handleTryOn(product) {
-    console.log("Navigating to tryon with product:", product);
-
     navigate("/tryon", {
       state: {
         image: product.image,
         title: product.title,
         price: product.price,
-        buyUrl: product.buyUrl,
+        buyUrl: product.product_url,
       },
     });
-  }
-
-  /* ---------------- FETCH PRODUCTS ---------------- */
-  async function loadProducts({ isLoadMore = false, collection }) {
-    try {
-      if (isLoadMore) setLoadingMore(true);
-      else setLoading(true);
-
-      setError(null);
-
-      console.log("CALLING WITH COLLECTION 👉", collection);
-
-      const response = await supabase.functions.invoke("shopify-products", {
-        body: {
-          collection,
-          cursor: isLoadMore ? cursor : null,
-        },
-      });
-
-      console.log("FUNCTION RESPONSE 👉", response);
-
-      if (response.error) throw response.error;
-
-      const data = response.data;
-      console.log("PRODUCTS RECEIVED 👉", data);
-
-      setProducts((prev) =>
-        isLoadMore ? [...prev, ...data.products] : data.products
-      );
-
-      setCursor(data.nextCursor);
-    } catch (err) {
-      console.error("Failed to load products:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
   }
 
   /* ---------------- INITIAL LOAD ---------------- */
   useEffect(() => {
     fetchUserName();
-    loadProducts({ collection: activeCollection });
+    loadProducts();
   }, []);
-
-  /* ---------------- TAB CHANGE ---------------- */
-  function handleCollectionChange(col) {
-    console.log("TAB CLICKED 👉", col);
-
-    setActiveCollection(col);
-    setProducts([]);
-    setCursor(null);
-
-    loadProducts({
-      collection: col,
-      isLoadMore: false,
-    });
-  }
 
   /* ================= UI ================= */
   return (
@@ -148,27 +100,14 @@ export default function Dashboard() {
           <Typography sx={{ fontSize: 22, fontWeight: 800 }}>
             Hi {userName} 👋
           </Typography>
-          <Typography>Welcome back — your wardrobe is ready.</Typography>
+          <Typography>Try outfits virtually & shop from Amazon</Typography>
         </Box>
 
-        {/* NEW ARRIVALS */}
+        {/* PRODUCTS */}
         <Box sx={{ mt: 4 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 2 }}>
-            New Arrivals ✨
+            Amazon Products ✨
           </Typography>
-
-          {/* COLLECTION TABS */}
-          <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
-            {COLLECTIONS.map((col) => (
-              <Button
-                key={col}
-                variant={activeCollection === col ? "contained" : "outlined"}
-                onClick={() => handleCollectionChange(col)}
-              >
-                {col.toUpperCase()}
-              </Button>
-            ))}
-          </Box>
 
           {/* LOADING */}
           {loading && (
@@ -180,14 +119,7 @@ export default function Dashboard() {
           {/* ERROR */}
           {error && (
             <Typography color="error" sx={{ mt: 2 }}>
-              Error: {error}
-            </Typography>
-          )}
-
-          {/* NO PRODUCTS */}
-          {!loading && products.length === 0 && !error && (
-            <Typography sx={{ mt: 2 }}>
-              No products found in this collection
+              {error}
             </Typography>
           )}
 
@@ -215,7 +147,7 @@ export default function Dashboard() {
                       </Typography>
 
                       <Typography fontSize={13} color="text.secondary">
-                        ₹{product.price}
+                        {product.price}
                       </Typography>
                     </CardContent>
 
@@ -227,13 +159,16 @@ export default function Dashboard() {
                     >
                       TRY ON
                     </Button>
+
                     <Button
                       fullWidth
                       variant="outlined"
                       sx={{ mt: 1 }}
-                      onClick={() => window.open(product.buyUrl, "_blank")}
+                      onClick={() =>
+                        window.open(product.product_url, "_blank")
+                      }
                     >
-                      BUY
+                      BUY ON AMAZON
                     </Button>
                   </Card>
                 </Grid>
@@ -241,27 +176,10 @@ export default function Dashboard() {
             </Grid>
           )}
 
-          {/* LOAD MORE */}
-          {cursor && !loadingMore && (
-            <Box sx={{ mt: 4, textAlign: "center" }}>
-              <Button
-                variant="outlined"
-                onClick={() =>
-                  loadProducts({
-                    collection: activeCollection,
-                    isLoadMore: true,
-                  })
-                }
-              >
-                Load More
-              </Button>
-            </Box>
-          )}
-
-          {loadingMore && (
-            <Box sx={{ mt: 3, textAlign: "center" }}>
-              <CircularProgress size={24} />
-            </Box>
+          {!loading && products.length === 0 && !error && (
+            <Typography sx={{ mt: 2 }}>
+              No products found
+            </Typography>
           )}
         </Box>
       </Box>
