@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   Box,
-  Grid,
   Typography,
   Card,
   CardMedia,
@@ -53,6 +52,7 @@ export default function Dashboard() {
       setUserName("User");
     }
   }
+  
   /* ---------------- FETCH AMAZON PRODUCTS ---------------- */
   async function loadProducts() {
     try {
@@ -123,39 +123,98 @@ export default function Dashboard() {
             </Typography>
           )}
 
-          {/* PRODUCTS GRID */}
+          {/* PRODUCTS GRID - FIXED WITH GRID2 */}       
           {!loading && products.length > 0 && (
-            <Grid container spacing={2}>
+            <Box 
+              sx={{ 
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, 1fr)',
+                  md: 'repeat(3, 1fr)',
+                  lg: 'repeat(4, 1fr)',
+                },
+                gap: 3,
+              }}
+            >
               {products.map((product) => (
-                <Grid item xs={6} sm={4} md={3} lg={2} key={product.id}>
-                  <Card sx={{ borderRadius: 2 }}>
+                <Card 
+                  key={product.id}
+                  sx={{ 
+                    borderRadius: 2,
+                    display: "flex",
+                    flexDirection: "column",
+                    transition: "transform 0.2s, box-shadow 0.2s",
+                    "&:hover": {
+                      transform: "translateY(-4px)",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                    }
+                  }}
+                >
+                  {/* IMAGE WITH FIXED HEIGHT */}
+                  <Box
+                    sx={{
+                      height: 200,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: "#fff",
+                      p: 2,
+                      overflow: "hidden",
+                    }}
+                  >
                     <CardMedia
                       component="img"
                       image={product.image || "/placeholder.png"}
                       alt={product.title}
                       sx={{
-                        height: 160,
+                        maxHeight: "100%",
+                        maxWidth: "100%",
                         objectFit: "contain",
-                        bgcolor: "#fff",
-                        p: 1,
                       }}
                     />
+                  </Box>
 
-                    <CardContent>
-                      <Typography fontSize={14} fontWeight={700} noWrap>
-                        {product.title}
-                      </Typography>
+                  {/* CONTENT WITH FIXED HEIGHT */}
+                  <CardContent sx={{ flexGrow: 1, pb: 1 }}>
+                    <Typography 
+                      fontSize={14} 
+                      fontWeight={700} 
+                      sx={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        minHeight: 40,
+                        mb: 1,
+                      }}
+                    >
+                      {product.title}
+                    </Typography>
 
-                      <Typography fontSize={13} color="text.secondary">
-                        {product.price}
-                      </Typography>
-                    </CardContent>
+                    <Typography 
+                      fontSize={16} 
+                      fontWeight={700}
+                      color="primary"
+                    >
+                      {product.price}
+                    </Typography>
+                  </CardContent>
 
+                  {/* BUTTONS */}
+                  <Box sx={{ p: 2, pt: 0, display: "flex", flexDirection: "column", gap: 1 }}>
                     <Button
                       fullWidth
                       variant="contained"
-                      sx={{ mt: 1 }}
                       onClick={() => handleTryOn(product)}
+                      sx={{
+                        bgcolor: "#6C5CE7",
+                        fontWeight: 600,
+                        "&:hover": {
+                          bgcolor: "#5849c7",
+                        }
+                      }}
                     >
                       TRY ON
                     </Button>
@@ -163,17 +222,23 @@ export default function Dashboard() {
                     <Button
                       fullWidth
                       variant="outlined"
-                      sx={{ mt: 1 }}
-                      onClick={() =>
-                        window.open(product.product_url, "_blank")
-                      }
+                      onClick={() => window.open(product.product_url, "_blank")}
+                      sx={{
+                        borderColor: "#6C5CE7",
+                        color: "#6C5CE7",
+                        fontWeight: 600,
+                        "&:hover": {
+                          borderColor: "#5849c7",
+                          bgcolor: "rgba(108, 92, 231, 0.04)",
+                        }
+                      }}
                     >
                       BUY ON AMAZON
                     </Button>
-                  </Card>
-                </Grid>
+                  </Box>
+                </Card>
               ))}
-            </Grid>
+            </Box>
           )}
 
           {!loading && products.length === 0 && !error && (
