@@ -19,8 +19,9 @@ serve(async (req: Request) => {
     const REPLICATE_API_TOKEN = Deno.env.get("REPLICATE_API_TOKEN");
     
     if (!REPLICATE_API_TOKEN) {
+      console.error("Missing REPLICATE_API_TOKEN");
       return new Response(
-        JSON.stringify({ error: "Missing REPLICATE_API_TOKEN secret" }),
+        JSON.stringify({ error: "Server configuration error: Missing REPLICATE_API_TOKEN" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -42,17 +43,18 @@ serve(async (req: Request) => {
     console.log("📤 Converting images to base64...");
     
     // Convert images to base64 data URLs
-    const personBlob = personImage instanceof Blob ? personImage : await personImage.arrayBuffer();
-    const garmentBlob = garmentImage instanceof Blob ? garmentImage : await garmentImage.arrayBuffer();
+    const personBlob = personImage instanceof Blob ? personImage : new Blob([await personImage.arrayBuffer()]);
+    const garmentBlob = garmentImage instanceof Blob ? garmentImage : new Blob([await garmentImage.arrayBuffer()]);
+    
+    const personArrayBuffer = await personBlob.arrayBuffer();
+    const garmentArrayBuffer = await garmentBlob.arrayBuffer();
     
     const personBase64 = btoa(
-      new Uint8Array(personBlob instanceof Blob ? await personBlob.arrayBuffer() : personBlob)
-        .reduce((data, byte) => data + String.fromCharCode(byte), '')
+      String.fromCharCode(...new Uint8Array(personArrayBuffer))
     );
     
     const garmentBase64 = btoa(
-      new Uint8Array(garmentBlob instanceof Blob ? await garmentBlob.arrayBuffer() : garmentBlob)
-        .reduce((data, byte) => data + String.fromCharCode(byte), '')
+      String.fromCharCode(...new Uint8Array(garmentArrayBuffer))
     );
 
     const personDataUrl = `data:image/jpeg;base64,${personBase64}`;
@@ -80,7 +82,7 @@ serve(async (req: Request) => {
     if (!createResponse.ok) {
       const errorText = await createResponse.text();
       console.error("❌ Replicate create failed:", errorText);
-      throw new Error(`Replicate API error: ${createResponse.status}`);
+      throw new Error(`Replicate API error: ${createResponse.status} - ${errorText}`);
     }
 
     const prediction = await createResponse.json();
