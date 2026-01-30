@@ -6,24 +6,43 @@ import {
   CardMedia,
   CardContent,
   Button,
+  IconButton,
+  Dialog,
+  DialogContent,
+  CircularProgress,
+  Chip,
+  Tabs,
+  Tab
 } from "@mui/material";
-
+import DeleteIcon from "@mui/icons-material/Delete";
+import CloseIcon from "@mui/icons-material/Close";
+import FavoriteIcon from "@mui/icons-material/Favorite";
+import DownloadIcon from "@mui/icons-material/Download";
 import Sidebar from "./Sidebar";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import { hmMenTshirts } from "../data/hmMenTshirts";
+import { hmWomenTshirts } from "../data/hmWomenTshirts";
 
 /* ---------------- THEME ---------------- */
 const THEME = {
   gradient:
     "linear-gradient(90deg, rgba(219,233,255,1) 0%, rgba(227,211,247,1) 50%, rgba(248,217,227,1) 100%)",
   pageBg: "#F6F7FB",
+  primary: "#6C5CE7"
 };
 
 /* ================= DASHBOARD ================= */
 export default function Dashboard() {
   const [products, setProducts] = useState([]);
   const [userName, setUserName] = useState("User");
+  const [activeView, setActiveView] = useState("overview");
+  const [productCategory, setProductCategory] = useState(0); // 0 = Men, 1 = Women
+  const [history, setHistory] = useState([]);
+  const [savedLooks, setSavedLooks] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const navigate = useNavigate();
 
@@ -56,9 +75,10 @@ export default function Dashboard() {
 
   /* ---------------- LOAD H&M PRODUCTS ---------------- */
   function loadProducts() {
-    // Normalize H&M data to match your app
-    const normalized = hmMenTshirts.map((item, index) => ({
-      id: index,
+    // Load based on selected category
+    const sourceData = productCategory === 0 ? hmMenTshirts : hmWomenTshirts;
+    const normalized = sourceData.map((item, index) => ({
+      id: item.id || index,
       title: item.title,
       price: item.price,
       image: item.image,
@@ -66,6 +86,152 @@ export default function Dashboard() {
     }));
 
     setProducts(normalized);
+  }
+
+  /* ---------------- FETCH HISTORY ---------------- */
+  async function fetchHistory() {
+    setLoading(true);
+    console.log("🔍 Fetching history...");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log("❌ No user found");
+        return;
+      }
+
+      console.log("👤 User ID:", user.id);
+
+      const { data, error } = await supabase
+        .from("tryon_history")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("❌ History fetch error:", error);
+        throw error;
+      }
+
+      console.log("✅ History data:", data);
+      console.log("📊 Total records:", data?.length || 0);
+      setHistory(data || []);
+    } catch (err) {
+      console.error("Failed to fetch history:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------- FETCH SAVED LOOKS ---------------- */
+  async function fetchSavedLooks() {
+    setLoading(true);
+    console.log("💖 Fetching saved looks...");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log("❌ No user found");
+        return;
+      }
+
+      console.log("👤 User ID:", user.id);
+
+      const { data, error } = await supabase
+        .from("tryon_history")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("is_saved", true)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("❌ Saved looks fetch error:", error);
+        throw error;
+      }
+
+      console.log("✅ Saved looks data:", data);
+      console.log("📊 Saved records:", data?.length || 0);
+      
+      // Debug: Check is_saved values
+      if (data && data.length > 0) {
+        data.forEach((item, index) => {
+          console.log(`Record ${index + 1}:`, {
+            id: item.id,
+            is_saved: item.is_saved,
+            product_name: item.product_name
+          });
+        });
+      }
+
+      setSavedLooks(data || []);
+    } catch (err) {
+      console.error("Failed to fetch saved looks:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------------- DELETE FROM HISTORY ---------------- */
+  async function handleDeleteHistory(id) {
+    if (!window.confirm("Delete this try-on from history?")) return;
+
+    setDeleting(id);
+    try {
+      const { error } = await supabase
+        .from("tryon_history")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      setHistory(history.filter(item => item.id !== id));
+      if (activeView === "saved") {
+        setSavedLooks(savedLooks.filter(item => item.id !== id));
+      }
+    } catch (err) {
+      console.error("Delete failed:", err);
+      alert("Failed to delete");
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  /* ---------------- UNSAVE LOOK ---------------- */
+  async function handleUnsaveLook(id) {
+    if (!window.confirm("Remove this from saved looks?")) return;
+
+    setDeleting(id);
+    try {
+      const { error } = await supabase
+        .from("tryon_history")
+        .update({ is_saved: false })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      setSavedLooks(savedLooks.filter(item => item.id !== id));
+      setHistory(history.map(item => 
+        item.id === id ? { ...item, is_saved: false } : item
+      ));
+    } catch (err) {
+      console.error("Unsave failed:", err);
+      alert("Failed to unsave");
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  /* ---------------- DOWNLOAD IMAGE ---------------- */
+  async function handleDownload(imageData, productName) {
+    try {
+      const link = document.createElement("a");
+      link.href = imageData;
+      link.download = `tryon_${productName.replace(/\s+/g, '_')}_${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Failed to download image");
+    }
   }
 
   /* ---------------- TRY ON ---------------- */
@@ -80,131 +246,537 @@ export default function Dashboard() {
     });
   }
 
+  /* ---------------- VIEW CHANGE HANDLER ---------------- */
+  function handleViewChange(view) {
+    console.log("🔄 Switching to view:", view);
+    setActiveView(view);
+    
+    if (view === "history") {
+      fetchHistory();
+    } else if (view === "saved") {
+      fetchSavedLooks();
+    }
+  }
+
   /* ---------------- INITIAL LOAD ---------------- */
   useEffect(() => {
     fetchUserName();
     loadProducts();
   }, []);
 
+  /* ---------------- LOAD PRODUCTS WHEN CATEGORY CHANGES ---------------- */
+  useEffect(() => {
+    loadProducts();
+  }, [productCategory]);
+
   /* ================= UI ================= */
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: THEME.pageBg }}>
-      <Sidebar userName={userName} />
+      <Sidebar userName={userName} activeView={activeView} onViewChange={handleViewChange} />
 
       <Box sx={{ ml: { xs: "70px", md: "240px" }, p: 3 }}>
         {/* HEADER */}
-        <Box sx={{ p: 3, borderRadius: 3, background: THEME.gradient }}>
+        <Box sx={{ p: 3, borderRadius: 3, background: THEME.gradient, mb: 3 }}>
           <Typography sx={{ fontSize: 22, fontWeight: 800 }}>
             Hi {userName} 👋
           </Typography>
-          <Typography>Try H&M outfits virtually</Typography>
+          <Typography>
+            {activeView === "overview" && "Try H&M outfits virtually"}
+            {activeView === "history" && "View all your captured try-ons"}
+            {activeView === "saved" && "Your favorite looks collection"}
+          </Typography>
         </Box>
 
-        {/* PRODUCTS */}
-        <Box sx={{ mt: 4 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 2 }}>
-            H&M Men T-Shirts 👕
-          </Typography>
-
-          {/* PRODUCTS GRID */}
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                sm: "repeat(2, 1fr)",
-                md: "repeat(3, 1fr)",
-                lg: "repeat(4, 1fr)",
-              },
-              gap: 3,
-            }}
-          >
-            {products.map((product) => (
-              <Card
-                key={product.id}
+        {/* OVERVIEW / PRODUCTS */}
+        {activeView === "overview" && (
+          <Box>
+            <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 3 }}>
+            {/* PRODUCT CATEGORY TABS */}
+            <Box sx={{ mb: 3, borderBottom: 1, borderColor: "divider" }}>
+              <Tabs 
+                value={productCategory} 
+                onChange={(e, newValue) => setProductCategory(newValue)}
                 sx={{
-                  borderRadius: 2,
-                  display: "flex",
-                  flexDirection: "column",
-                  transition: "transform 0.2s, box-shadow 0.2s",
-                  "&:hover": {
-                    transform: "translateY(-4px)",
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                  "& .MuiTab-root": {
+                    fontWeight: 700,
+                    fontSize: "1rem",
+                    textTransform: "none",
+                  },
+                  "& .Mui-selected": {
+                    color: THEME.primary,
+                  },
+                  "& .MuiTabs-indicator": {
+                    backgroundColor: THEME.primary,
                   },
                 }}
               >
-                {/* IMAGE */}
-                <Box
+                <Tab label="👔 Men's Collection" />
+                <Tab label="👗 Women's Collection" />
+              </Tabs>
+            </Box>
+            <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 3 }}>
+              {productCategory === 0 ? "H&M Men T-Shirts 👕" : "H&M Women T-Shirts & Tops 👚"}
+            </Typography>
+            </Typography>
+
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  sm: "repeat(2, 1fr)",
+                  md: "repeat(3, 1fr)",
+                  lg: "repeat(4, 1fr)",
+                },
+                gap: 3,
+              }}
+            >
+              {products.map((product) => (
+                <Card
+                  key={product.id}
                   sx={{
-                    height: 250,
+                    borderRadius: 2,
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    bgcolor: "#f5f5f5",
-                    p: 2,
+                    flexDirection: "column",
+                    transition: "transform 0.2s, box-shadow 0.2s",
+                    "&:hover": {
+                      transform: "translateY(-4px)",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                    },
                   }}
                 >
-                  <CardMedia
-                    component="img"
-                    image={product.image}
-                    alt={product.title}
-                    onError={(e) => {
-                      console.error("Image failed to load:", product.image);
-                      e.target.src = "https://via.placeholder.com/400x400/f0f0f0/666666?text=H%26M+T-Shirt";
-                    }}
+                  <Box
                     sx={{
-                      maxHeight: "100%",
-                      maxWidth: "100%",
-                      objectFit: "contain",
-                    }}
-                  />
-                </Box>
-
-                {/* CONTENT */}
-                <CardContent sx={{ flexGrow: 1 }}>
-                  <Typography
-                    fontSize={14}
-                    fontWeight={700}
-                    sx={{
-                      mb: 1,
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
+                      height: 250,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: "#f5f5f5",
+                      p: 2,
                     }}
                   >
-                    {product.title}
-                  </Typography>
+                    <CardMedia
+                      component="img"
+                      image={product.image}
+                      alt={product.title}
+                      onError={(e) => {
+                        e.target.src = "https://via.placeholder.com/400x400/f0f0f0/666666?text=H%26M+T-Shirt";
+                      }}
+                      sx={{
+                        maxHeight: "100%",
+                        maxWidth: "100%",
+                        objectFit: "contain",
+                      }}
+                    />
+                  </Box>
 
-                  <Typography fontSize={18} fontWeight={700} color="primary">
-                    {product.price}
-                  </Typography>
-                </CardContent>
+                  <CardContent sx={{ flexGrow: 1 }}>
+                    <Typography
+                      fontSize={14}
+                      fontWeight={700}
+                      sx={{
+                        mb: 1,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {product.title}
+                    </Typography>
 
-                {/* ACTIONS */}
-                <Box sx={{ p: 2, pt: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    onClick={() => handleTryOn(product)}
-                    sx={{ fontWeight: 600 }}
-                  >
-                    TRY ON
-                  </Button>
+                    <Typography fontSize={18} fontWeight={700} color="primary">
+                      {product.price}
+                    </Typography>
+                  </CardContent>
 
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    onClick={() => window.open(product.product_url, "_blank")}
-                    sx={{ fontWeight: 600 }}
-                  >
-                    BUY ON H&M
-                  </Button>
-                </Box>
-              </Card>
-            ))}
+                  <Box sx={{ p: 2, pt: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      onClick={() => handleTryOn(product)}
+                      sx={{ fontWeight: 600, bgcolor: THEME.primary }}
+                    >
+                      TRY ON
+                    </Button>
+
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      onClick={() => window.open(product.product_url, "_blank")}
+                      sx={{ fontWeight: 600, borderColor: THEME.primary, color: THEME.primary }}
+                    >
+                      BUY ON H&M
+                    </Button>
+                  </Box>
+                </Card>
+              ))}
+            </Box>
           </Box>
-        </Box>
+        )}
+
+        {/* TRY-ON HISTORY */}
+        {activeView === "history" && (
+          <Box>
+            <Typography variant="h5" fontWeight={700} gutterBottom sx={{ mb: 3 }}>
+              📸 Try-On History ({history.length})
+            </Typography>
+
+            {loading ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+                <CircularProgress sx={{ color: THEME.primary }} />
+              </Box>
+            ) : history.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 8 }}>
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  No Try-On History Yet
+                </Typography>
+                <Typography color="text.secondary">
+                  Captured images will appear here automatically
+                </Typography>
+              </Box>
+            ) : (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, 1fr)",
+                    md: "repeat(3, 1fr)",
+                    lg: "repeat(4, 1fr)",
+                  },
+                  gap: 3,
+                }}
+              >
+                {history.map((item) => (
+                  <Card
+                    key={item.id}
+                    sx={{
+                      borderRadius: 2,
+                      position: "relative",
+                      transition: "transform 0.2s, box-shadow 0.2s",
+                      "&:hover": {
+                        transform: "translateY(-4px)",
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                      },
+                    }}
+                  >
+                    {item.is_saved && (
+                      <Chip
+                        icon={<FavoriteIcon sx={{ fontSize: 16 }} />}
+                        label="Saved"
+                        size="small"
+                        sx={{
+                          position: "absolute",
+                          top: 8,
+                          left: 8,
+                          bgcolor: "rgba(255,255,255,0.95)",
+                          color: "#e91e63",
+                          fontWeight: 700,
+                          zIndex: 1
+                        }}
+                      />
+                    )}
+
+                    <Box
+                      sx={{
+                        height: 300,
+                        position: "relative",
+                        cursor: "pointer",
+                        bgcolor: "#f5f5f5"
+                      }}
+                      onClick={() => setSelectedImage(item)}
+                    >
+                      <CardMedia
+                        component="img"
+                        image={item.image_data}
+                        alt="Try-on"
+                        sx={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover"
+                        }}
+                      />
+                      
+                      <IconButton
+                        sx={{
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                          bgcolor: "rgba(255,255,255,0.9)",
+                          "&:hover": { bgcolor: "rgba(255,255,255,1)" }
+                        }}
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteHistory(item.id);
+                        }}
+                        disabled={deleting === item.id}
+                      >
+                        {deleting === item.id ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <DeleteIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </Box>
+
+                    <CardContent>
+                      <Typography fontSize={14} fontWeight={700} noWrap>
+                        {item.product_name || "Unknown Product"}
+                      </Typography>
+                      <Typography fontSize={16} fontWeight={700} color="primary" sx={{ mb: 1 }}>
+                        {item.product_price || "N/A"}
+                      </Typography>
+                      <Typography fontSize={12} color="text.secondary">
+                        {new Date(item.created_at).toLocaleDateString()} at{" "}
+                        {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Typography>
+                    </CardContent>
+
+                    <Box sx={{ p: 2, pt: 0, display: "flex", gap: 1 }}>
+                      <Button
+                        fullWidth
+                        variant="outlined"
+                        size="small"
+                        startIcon={<DownloadIcon />}
+                        onClick={() => handleDownload(item.image_data, item.product_name)}
+                        sx={{ borderColor: THEME.primary, color: THEME.primary }}
+                      >
+                        Download
+                      </Button>
+                    </Box>
+                  </Card>
+                ))}
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {/* SAVED LOOKS */}
+        {activeView === "saved" && (
+          <Box>
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 3 }}>
+              <Typography variant="h5" fontWeight={700}>
+                💖 Saved Looks ({savedLooks.length})
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  console.log("🔄 Manual refresh triggered");
+                  fetchSavedLooks();
+                }}
+                sx={{ borderColor: THEME.primary, color: THEME.primary }}
+              >
+                Refresh
+              </Button>
+            </Box>
+
+            {loading ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+                <CircularProgress sx={{ color: THEME.primary }} />
+              </Box>
+            ) : savedLooks.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 8 }}>
+                <FavoriteIcon sx={{ fontSize: 64, color: "text.disabled", mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  No Saved Looks Yet
+                </Typography>
+                <Typography color="text.secondary" sx={{ mb: 2 }}>
+                  Save your favorite try-on looks to build your collection
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                  💡 Tip: Open browser console (F12) to see debug logs
+                </Typography>
+              </Box>
+            ) : (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, 1fr)",
+                    md: "repeat(3, 1fr)",
+                    lg: "repeat(4, 1fr)",
+                  },
+                  gap: 3,
+                }}
+              >
+                {savedLooks.map((look) => (
+                  <Card
+                    key={look.id}
+                    sx={{
+                      borderRadius: 2,
+                      position: "relative",
+                      border: "2px solid #FFB6C1",
+                      transition: "transform 0.2s, box-shadow 0.2s",
+                      "&:hover": {
+                        transform: "translateY(-4px)",
+                        boxShadow: "0 8px 24px rgba(255,182,193,0.3)",
+                      },
+                    }}
+                  >
+                    <Chip
+                      icon={<FavoriteIcon sx={{ fontSize: 16 }} />}
+                      label="Saved"
+                      size="small"
+                      sx={{
+                        position: "absolute",
+                        top: 8,
+                        left: 8,
+                        bgcolor: "rgba(255,255,255,0.95)",
+                        color: "#e91e63",
+                        fontWeight: 700,
+                        zIndex: 1
+                      }}
+                    />
+
+                    <Box
+                      sx={{
+                        height: 300,
+                        position: "relative",
+                        cursor: "pointer",
+                        bgcolor: "#f5f5f5"
+                      }}
+                      onClick={() => setSelectedImage(look)}
+                    >
+                      <CardMedia
+                        component="img"
+                        image={look.image_data}
+                        alt="Saved look"
+                        sx={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover"
+                        }}
+                      />
+                      
+                      <IconButton
+                        sx={{
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                          bgcolor: "rgba(255,255,255,0.9)",
+                          "&:hover": { bgcolor: "rgba(255,255,255,1)", color: "#d32f2f" }
+                        }}
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUnsaveLook(look.id);
+                        }}
+                        disabled={deleting === look.id}
+                      >
+                        {deleting === look.id ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <DeleteIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </Box>
+
+                    <CardContent>
+                      <Typography fontSize={14} fontWeight={700} noWrap>
+                        {look.product_name || "Unknown Product"}
+                      </Typography>
+                      <Typography fontSize={16} fontWeight={700} color="primary" sx={{ mb: 1 }}>
+                        {look.product_price || "N/A"}
+                      </Typography>
+                      <Typography fontSize={12} color="text.secondary">
+                        Saved on {new Date(look.created_at).toLocaleDateString()}
+                      </Typography>
+                    </CardContent>
+
+                    <Box sx={{ p: 2, pt: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        size="small"
+                        startIcon={<DownloadIcon />}
+                        onClick={() => handleDownload(look.image_data, look.product_name)}
+                        sx={{ bgcolor: THEME.primary }}
+                      >
+                        Download
+                      </Button>
+                    </Box>
+                  </Card>
+                ))}
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {/* FULL SCREEN IMAGE DIALOG */}
+        <Dialog
+          open={!!selectedImage}
+          onClose={() => setSelectedImage(null)}
+          maxWidth="md"
+          fullWidth
+        >
+          {selectedImage && (
+            <Box sx={{ position: "relative" }}>
+              <IconButton
+                sx={{
+                  position: "absolute",
+                  top: 8,
+                  right: 8,
+                  bgcolor: "rgba(255,255,255,0.9)",
+                  zIndex: 1,
+                  "&:hover": { bgcolor: "rgba(255,255,255,1)" }
+                }}
+                onClick={() => setSelectedImage(null)}
+              >
+                <CloseIcon />
+              </IconButton>
+              
+              {selectedImage.is_saved && (
+                <Chip
+                  icon={<FavoriteIcon />}
+                  label="Saved Look"
+                  sx={{
+                    position: "absolute",
+                    top: 8,
+                    left: 8,
+                    bgcolor: "rgba(255,255,255,0.95)",
+                    color: "#e91e63",
+                    fontWeight: 700,
+                    zIndex: 1
+                  }}
+                />
+              )}
+
+              <DialogContent sx={{ p: 0 }}>
+                <img
+                  src={selectedImage.image_data}
+                  alt="Full view"
+                  style={{ width: "100%", display: "block" }}
+                />
+                <Box sx={{ p: 3 }}>
+                  <Typography variant="h6" fontWeight={700}>
+                    {selectedImage.product_name}
+                  </Typography>
+                  <Typography variant="h5" color="primary" fontWeight={800} sx={{ mt: 1 }}>
+                    {selectedImage.product_price}
+                  </Typography>
+                  <Typography color="text.secondary" sx={{ mt: 2 }}>
+                    {activeView === "saved" ? "Saved" : "Captured"} on {new Date(selectedImage.created_at).toLocaleString()}
+                  </Typography>
+                  
+                  <Box sx={{ mt: 3, display: "flex", gap: 2 }}>
+                    <Button
+                      variant="contained"
+                      startIcon={<DownloadIcon />}
+                      onClick={() => handleDownload(selectedImage.image_data, selectedImage.product_name)}
+                      sx={{ bgcolor: THEME.primary }}
+                    >
+                      Download
+                    </Button>
+                  </Box>
+                </Box>
+              </DialogContent>
+            </Box>
+          )}
+        </Dialog>
       </Box>
     </Box>
   );

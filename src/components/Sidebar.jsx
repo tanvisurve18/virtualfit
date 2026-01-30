@@ -1,170 +1,180 @@
-// src/components/Sidebar.jsx
-import React, { useState } from "react";
-import { Box, Typography, Avatar, IconButton, Tooltip } from "@mui/material";
-import {
-  Home as HomeIcon,
-  Bookmark as BookmarkIcon,
-  History as HistoryIcon,
-  PhotoCamera as CameraIcon,
-  Menu as MenuIcon,
-  ChevronLeft,
-  ChevronRight,
-  Logout,
-} from "@mui/icons-material";
-import { useNavigate, useLocation } from "react-router-dom";
+import React from "react";
+import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Avatar, IconButton } from "@mui/material";
+import HomeIcon from "@mui/icons-material/Home";
+import FavoriteIcon from "@mui/icons-material/Favorite";
+import HistoryIcon from "@mui/icons-material/History";
+import LogoutIcon from "@mui/icons-material/Logout";
 import { supabase } from "../lib/supabaseClient";
+import { useNavigate } from "react-router-dom";
 
-export default function Sidebar({ userName = "User" }) {
+const THEME = {
+  primary: "#6C5CE7",
+  bg: "#FFFFFF"
+};
+
+export default function Sidebar({ userName, activeView = "overview", onViewChange }) {
   const navigate = useNavigate();
-  const location = useLocation();
-
-  const [collapsed, setCollapsed] = useState(false);
-
-  const menuItems = [
-    { label: "Overview", icon: HomeIcon, path: "/dashboard" },
-    { label: "Saved Looks", icon: BookmarkIcon, path: "/saved-looks" },
-    { label: "Try-On History", icon: HistoryIcon, path: "/tryon-history" },
-    { label: "Recommendations", icon: CameraIcon, path: "/recommendations" },
-  ];
 
   const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      localStorage.removeItem("vf_token");
-      localStorage.removeItem("vf_user");
-      navigate("/");
-    } catch (error) {
-      console.error("Logout error:", error);
-      navigate("/");
-    }
+    await supabase.auth.signOut();
+    navigate("/login");
   };
 
+  const menuItems = [
+    { id: "overview", label: "Overview", icon: <HomeIcon /> },
+    { id: "saved", label: "Saved Looks", icon: <FavoriteIcon /> },
+    { id: "history", label: "Try-On History", icon: <HistoryIcon /> },
+  ];
+
   return (
-    <Box
-      sx={{
-        width: collapsed ? "70px" : "240px",
-        transition: "width 0.25s ease",
-        bgcolor: "#FFFFFF",
-        height: "100vh",
-        borderRight: "1px solid #eee",
-        position: "fixed",
-        left: 0,
-        top: 0,
-        display: "flex",
-        flexDirection: "column",
-        zIndex: 1000,
-      }}
-    >
-      {/* TOP SECTION */}
+    <>
+      {/* DESKTOP SIDEBAR */}
       <Box
         sx={{
-          p: collapsed ? 2 : 3,
-          display: "flex",
-          alignItems: "center",
-          gap: collapsed ? 0 : 2,
-          justifyContent: collapsed ? "center" : "flex-start",
+          position: "fixed",
+          left: 0,
+          top: 0,
+          height: "100vh",
+          width: 240,
+          bgcolor: THEME.bg,
+          borderRight: "1px solid #e0e0e0",
+          display: { xs: "none", md: "flex" },
+          flexDirection: "column",
+          zIndex: 1000
         }}
       >
-        <Avatar
-          sx={{
-            bgcolor: "#7B4BFF",
-            width: 48,
-            height: 48,
-            fontSize: 22,
-          }}
-        >
+        {/* USER PROFILE */}
+        <Box sx={{ p: 3, borderBottom: "1px solid #e0e0e0" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Avatar sx={{ bgcolor: THEME.primary, width: 48, height: 48 }}>
+              {userName.charAt(0).toUpperCase()}
+            </Avatar>
+            <Box>
+              <Box sx={{ fontWeight: 700, fontSize: 16 }}>{userName}</Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* MENU ITEMS */}
+        <List sx={{ flexGrow: 1, py: 2 }}>
+          {menuItems.map((item) => (
+            <ListItem key={item.id} disablePadding>
+              <ListItemButton
+                selected={activeView === item.id}
+                onClick={() => onViewChange && onViewChange(item.id)}
+                sx={{
+                  mx: 1,
+                  borderRadius: 2,
+                  "&.Mui-selected": {
+                    bgcolor: `${THEME.primary}15`,
+                    color: THEME.primary,
+                    "& .MuiListItemIcon-root": {
+                      color: THEME.primary
+                    },
+                    "&:hover": {
+                      bgcolor: `${THEME.primary}25`
+                    }
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={item.label}
+                  primaryTypographyProps={{
+                    fontWeight: activeView === item.id ? 700 : 500
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          ))}
+        </List>
+
+        {/* LOGOUT */}
+        <Box sx={{ p: 2, borderTop: "1px solid #e0e0e0" }}>
+          <ListItemButton
+            onClick={handleLogout}
+            sx={{
+              borderRadius: 2,
+              color: "#d32f2f",
+              "&:hover": {
+                bgcolor: "#ffebee"
+              }
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 40, color: "#d32f2f" }}>
+              <LogoutIcon />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Logout"
+              primaryTypographyProps={{
+                fontWeight: 600
+              }}
+            />
+          </ListItemButton>
+        </Box>
+      </Box>
+
+      {/* MOBILE SIDEBAR */}
+      <Box
+        sx={{
+          position: "fixed",
+          left: 0,
+          top: 0,
+          height: "100vh",
+          width: 70,
+          bgcolor: THEME.bg,
+          borderRight: "1px solid #e0e0e0",
+          display: { xs: "flex", md: "none" },
+          flexDirection: "column",
+          alignItems: "center",
+          zIndex: 1000,
+          py: 2
+        }}
+      >
+        {/* USER AVATAR */}
+        <Avatar sx={{ bgcolor: THEME.primary, mb: 3 }}>
           {userName.charAt(0).toUpperCase()}
         </Avatar>
 
-        {!collapsed && (
-          <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#2B2345" }}>
-            {userName}
-          </Typography>
-        )}
-      </Box>
-
-      {/* MENU ITEMS */}
-      <Box sx={{ flexGrow: 1, mt: 2 }}>
-        {menuItems.map((item, index) => {
-          const isActive = location.pathname === item.path;
-
-          return (
-            <Box
-              key={index}
-              onClick={() => navigate(item.path)}
+        {/* MENU ICONS */}
+        <Box sx={{ flexGrow: 1 }}>
+          {menuItems.map((item) => (
+            <IconButton
+              key={item.id}
+              onClick={() => onViewChange && onViewChange(item.id)}
               sx={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                gap: collapsed ? 0 : 2,
-                justifyContent: collapsed ? "center" : "flex-start",
-                py: 1.8,
-                px: collapsed ? 0 : 3,
-                cursor: "pointer",
-                transition: "0.25s",
-                bgcolor: isActive ? "rgba(123,75,255,0.15)" : "transparent",
-                "&:hover": { bgcolor: "rgba(123,75,255,0.12)" },
+                width: 48,
+                height: 48,
+                mb: 1,
+                color: activeView === item.id ? THEME.primary : "inherit",
+                bgcolor: activeView === item.id ? `${THEME.primary}15` : "transparent",
+                "&:hover": {
+                  bgcolor: activeView === item.id ? `${THEME.primary}25` : "#f5f5f5"
+                }
               }}
             >
-              <item.icon sx={{ fontSize: 24, color: "#7B4BFF" }} />
+              {item.icon}
+            </IconButton>
+          ))}
+        </Box>
 
-              {!collapsed && (
-                <Typography sx={{ fontSize: "0.95rem", color: "#2B2345", fontWeight: isActive ? 600 : 400 }}>
-                  {item.label}
-                </Typography>
-              )}
-            </Box>
-          );
-        })}
+        {/* LOGOUT ICON */}
+        <IconButton
+          onClick={handleLogout}
+          sx={{
+            width: 48,
+            height: 48,
+            color: "#d32f2f",
+            "&:hover": {
+              bgcolor: "#ffebee"
+            }
+          }}
+        >
+          <LogoutIcon />
+        </IconButton>
       </Box>
-
-      {/* LOGOUT */}
-      <Box
-        onClick={handleLogout}
-        sx={{
-          width: "100%",
-          py: 2,
-          px: collapsed ? 0 : 3,
-          display: "flex",
-          alignItems: "center",
-          gap: collapsed ? 0 : 2,
-          justifyContent: collapsed ? "center" : "flex-start",
-          cursor: "pointer",
-          transition: "0.25s",
-          "&:hover": { bgcolor: "rgba(255,80,80,0.1)" },
-          borderTop: "1px solid #eee",
-        }}
-      >
-        <Logout sx={{ fontSize: 22, color: "#D32F2F" }} />
-
-        {!collapsed && (
-          <Typography sx={{ fontSize: "0.95rem", color: "#D32F2F", fontWeight: 600 }}>
-            Logout
-          </Typography>
-        )}
-      </Box>
-
-      {/* COLLAPSE BUTTON */}
-      <Box
-        sx={{
-          position: "absolute",
-          top: 15,
-          right: collapsed ? -12 : -12,
-          bgcolor: "#fff",
-          border: "1px solid #ddd",
-          borderRadius: "50%",
-          width: 26,
-          height: 26,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          boxShadow: "0px 2px 6px rgba(0,0,0,0.15)",
-        }}
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        {collapsed ? <ChevronRight fontSize="small" /> : <ChevronLeft fontSize="small" />}
-      </Box>
-    </Box>
+    </>
   );
 }

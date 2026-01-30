@@ -1,0 +1,73 @@
+// src/data/hmWomenTshirts.js
+export const hmWomenTshirts = [
+  {
+    id: "hm-w-1",
+    title: "Draped Jersey Top",
+    price: "₹599",
+    image: "/data/hm/women-tshirts/draped-jersey-top.png",
+    url: "https://www2.hm.com/en_in/productpage.1316899003.html",
+  },
+  {
+    id: "hm-w-2",
+    title: "Draped Top",
+    price: "₹999",
+    image: "/data/hm/women-tshirts/draped-top.png",
+    url: "https://www2.hm.com/en_in/productpage.1320759001.html",
+  },
+  {
+    id: "hm-w-3",
+    title: "Ribbed Collared Top",
+    price: "₹999",
+    image: "/data/hm/women-tshirts/ribbed-collared-top.png",
+    url: "https://www2.hm.com/en_in/productpage.1316906001.html",
+  },
+  {
+    id: "hm-w-4",
+    title: "Waisted Interlock T-shirt",
+    price: "₹699",
+    image: "/data/hm/women-tshirts/waisted-interlock-tshirt.png",
+    url: "https://www2.hm.com/en_in/productpage.1323915004.html",
+  },
+  {
+    id: "hm-w-5",
+    title: "Printed T-shirt",
+    price: "₹699",
+    image: "/data/hm/women-tshirts/printed-tshirt.png",
+    url: "https://www2.hm.com/en_in/productpage.1267378010.html",
+  },
+  {
+    id: "hm-w-6",
+    title: "Printed Cotton T-shirt",
+    price: "₹699",
+    image: "/data/hm/women-tshirts/printed-cotton-tshirt.png",
+    url: "https://www2.hm.com/en_in/productpage.1324004002.html",
+  },
+  {
+    id: "hm-w-7",
+    title: "Denim Peplum Top",
+    price: "₹1,499",
+    image: "/data/hm/women-tshirts/denim-peplum-top.png",
+    url: "https://www2.hm.com/en_in/productpage.1328352001.html",
+  },
+  {
+    id: "hm-w-8",
+    title: "Fitted Cotton T-shirt",
+    price: "₹699",
+    image: "/data/hm/women-tshirts/fitted-cotton-tshirt.png",
+    url: "https://www2.hm.com/en_in/productpage.1296040006.html",
+  },
+  {
+    id: "hm-w-9",
+    title: "Collared Button-front Top",
+    price: "₹1,499",
+    image: "/data/hm/women-tshirts/collared-button-front-top.png",
+    url: "https://www2.hm.com/en_in/productpage.1316907001.html",
+  },
+  {
+    id: "hm-w-10",
+    title: "Fine-knit V-neck Cardigan",
+    price: "₹999",
+    image: "/data/hm/women-tshirts/fine-knit-v-neck-cardigan.png",
+    url: "https://www2.hm.com/en_in/productpage.1332143005.html",
+  },
+];
