@@ -12,17 +12,22 @@ import {
   CircularProgress,
   Chip,
   Tabs,
-  Tab
+  Tab,
+  Snackbar,
+  Alert
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CloseIcon from "@mui/icons-material/Close";
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import DownloadIcon from "@mui/icons-material/Download";
+import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import Sidebar from "./Sidebar";
+import RecommendationWidget from "../components/RecommendationWidget";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import { hmMenTshirts } from "../data/hmMenTshirts";
 import { hmWomenTshirts } from "../data/hmWomenTshirts";
+import { Link } from 'react-router-dom';
 
 /* ---------------- THEME ---------------- */
 const THEME = {
@@ -43,6 +48,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [savedProducts, setSavedProducts] = useState(new Set()); // track which product ids are already in closet
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
 
   const navigate = useNavigate();
 
@@ -96,6 +103,7 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         console.log("❌ No user found");
+        setLoading(false);
         return;
       }
 
@@ -119,6 +127,7 @@ export default function Dashboard() {
       console.error("Failed to fetch history:", err);
     } finally {
       setLoading(false);
+      console.log("🏁 History fetch complete, loading set to false");
     }
   }
 
@@ -130,6 +139,7 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         console.log("❌ No user found");
+        setLoading(false);
         return;
       }
 
@@ -166,6 +176,7 @@ export default function Dashboard() {
       console.error("Failed to fetch saved looks:", err);
     } finally {
       setLoading(false);
+      console.log("🏁 Saved looks fetch complete, loading set to false");
     }
   }
 
@@ -258,16 +269,76 @@ export default function Dashboard() {
     }
   }
 
+  /* ─── fetch which products are already in closet (for ❤️ state) ─── */
+  async function fetchSavedProductIds() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("closet_items")
+        .select("product_id")
+        .eq("user_id", user.id);
+      if (data) setSavedProducts(new Set(data.map(r => String(r.product_id))));
+    } catch (err) { console.error("fetchSavedProductIds:", err); }
+  }
+
+  /* ─── save product to closet (without try-on) ─── */
+  async function saveToCloset(product) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const productId = String(product.id);
+
+      // already saved? → unsave (toggle)
+      if (savedProducts.has(productId)) {
+        await supabase.from("closet_items").delete()
+          .eq("user_id", user.id)
+          .eq("product_id", productId);
+        setSavedProducts(prev => { const n = new Set(prev); n.delete(productId); return n; });
+        setSnackbar({ open: true, message: "Removed from closet", severity: "info" });
+        return;
+      }
+
+      // insert
+      await supabase.from("closet_items").insert({
+        user_id:        user.id,
+        product_id:     productId,
+        product_name:   product.title,
+        product_image:  product.image,
+        product_price:  product.price,
+        product_url:    product.product_url,
+        category:       productCategory === 0 ? "men" : "women",
+        status:         "favorite"
+      });
+      setSavedProducts(prev => new Set([...prev, productId]));
+      setSnackbar({ open: true, message: "❤️ Added to My Closet!", severity: "success" });
+    } catch (err) {
+      console.error("saveToCloset:", err);
+      setSnackbar({ open: true, message: "Failed to save", severity: "error" });
+    }
+  }
+
   /* ---------------- INITIAL LOAD ---------------- */
   useEffect(() => {
     fetchUserName();
     loadProducts();
+    fetchSavedProductIds();
   }, []);
 
   /* ---------------- LOAD PRODUCTS WHEN CATEGORY CHANGES ---------------- */
   useEffect(() => {
     loadProducts();
   }, [productCategory]);
+
+  /* ---------------- FETCH DATA WHEN VIEW CHANGES ---------------- */
+  useEffect(() => {
+    if (activeView === "history") {
+      fetchHistory();
+    } else if (activeView === "saved") {
+      fetchSavedLooks();
+    }
+  }, [activeView]);
 
   /* ================= UI ================= */
   return (
@@ -290,7 +361,6 @@ export default function Dashboard() {
         {/* OVERVIEW / PRODUCTS */}
         {activeView === "overview" && (
           <Box>
-            <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 3 }}>
             {/* PRODUCT CATEGORY TABS */}
             <Box sx={{ mb: 3, borderBottom: 1, borderColor: "divider" }}>
               <Tabs 
@@ -317,7 +387,6 @@ export default function Dashboard() {
             <Typography sx={{ fontWeight: 800, fontSize: 22, mb: 3 }}>
               {productCategory === 0 ? "H&M Men T-Shirts 👕" : "H&M Women T-Shirts & Tops 👚"}
             </Typography>
-            </Typography>
 
             <Box
               sx={{
@@ -338,6 +407,7 @@ export default function Dashboard() {
                     borderRadius: 2,
                     display: "flex",
                     flexDirection: "column",
+                    position: "relative",
                     transition: "transform 0.2s, box-shadow 0.2s",
                     "&:hover": {
                       transform: "translateY(-4px)",
@@ -345,6 +415,30 @@ export default function Dashboard() {
                     },
                   }}
                 >
+                  {/* Heart Icon Button - Top Right */}
+                  <IconButton
+                    onClick={() => saveToCloset(product)}
+                    sx={{
+                      position: "absolute",
+                      top: 8,
+                      right: 8,
+                      zIndex: 1,
+                      bgcolor: "rgba(255, 255, 255, 0.95)",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                      "&:hover": {
+                        bgcolor: "white",
+                        transform: "scale(1.1)"
+                      },
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    {savedProducts.has(String(product.id)) ? (
+                      <FavoriteIcon sx={{ color: "#e91e63", fontSize: 24 }} />
+                    ) : (
+                      <FavoriteBorderIcon sx={{ color: "#e91e63", fontSize: 24 }} />
+                    )}
+                  </IconButton>
+
                   <Box
                     sx={{
                       height: 250,
@@ -778,6 +872,29 @@ export default function Dashboard() {
           )}
         </Dialog>
       </Box>
+      <Box>
+        <Typography variant="h6" fontWeight={700}>
+          Recommended For You
+        </Typography>
+        <RecommendationWidget
+          type="history-based"
+          count={4}
+          compact={true}
+        />
+        <Button
+          component={Link}
+          to="/recommendations"
+          sx={{ mt: 2 }}
+        >
+          View All Recommendations
+        </Button>
+      </Box>
+      {/* ── SNACKBAR ── */}
+      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
+        <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: "100%", fontWeight: 600 }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

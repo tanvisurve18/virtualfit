@@ -3,6 +3,9 @@ import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Avatar
 import HomeIcon from "@mui/icons-material/Home";
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import HistoryIcon from "@mui/icons-material/History";
+import CheckroomIcon from "@mui/icons-material/Checkroom";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
@@ -21,9 +24,12 @@ export default function Sidebar({ userName, activeView = "overview", onViewChang
   };
 
   const menuItems = [
-    { id: "overview", label: "Overview", icon: <HomeIcon /> },
-    { id: "saved", label: "Saved Looks", icon: <FavoriteIcon /> },
-    { id: "history", label: "Try-On History", icon: <HistoryIcon /> },
+    { id: "overview", label: "Overview",        icon: <HomeIcon /> },
+    { id: "upload",   label: "Upload Try-On",   icon: <CameraAltIcon />, route: "/upload-tryon" },
+    { id: "recommendations", label: "Recommendations", icon: <AutoAwesomeIcon />, route: "/recommendations" },
+    { id: "saved",    label: "Saved Looks",     icon: <FavoriteIcon /> },
+    { id: "history",  label: "Try-On History",  icon: <HistoryIcon /> },
+    { id: "mycloset", label: "My Closet",       icon: <CheckroomIcon />, route: "/mycloset" },
   ];
 
   return (
@@ -60,8 +66,13 @@ export default function Sidebar({ userName, activeView = "overview", onViewChang
           {menuItems.map((item) => (
             <ListItem key={item.id} disablePadding>
               <ListItemButton
-                selected={activeView === item.id}
-                onClick={() => onViewChange && onViewChange(item.id)}
+                selected={
+                  activeView === item.id || 
+                  (item.id === "mycloset" && window.location.pathname === "/mycloset") || 
+                  (item.id === "upload" && window.location.pathname === "/upload") ||
+                  (item.id === "recommendations" && window.location.pathname === "/recommendations")
+                }
+                onClick={() => item.route ? navigate(item.route) : (onViewChange && onViewChange(item.id))}
                 sx={{
                   mx: 1,
                   borderRadius: 2,
@@ -143,7 +154,7 @@ export default function Sidebar({ userName, activeView = "overview", onViewChang
           {menuItems.map((item) => (
             <IconButton
               key={item.id}
-              onClick={() => onViewChange && onViewChange(item.id)}
+              onClick={() => item.route ? navigate(item.route) : (onViewChange && onViewChange(item.id))}
               sx={{
                 width: 48,
                 height: 48,

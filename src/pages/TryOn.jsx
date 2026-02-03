@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { 
   Box, Typography, IconButton, Button, Snackbar, Alert, 
-  CircularProgress, Card, CardContent, Chip, Paper, Slider
+  CircularProgress, Card, CardContent, Chip, Paper, Slider, Fade
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
@@ -10,6 +10,11 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import ShoppingBagIcon from "@mui/icons-material/ShoppingBag";
 import TuneIcon from "@mui/icons-material/Tune";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import WarningIcon from "@mui/icons-material/Warning";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import StraightenIcon from "@mui/icons-material/Straighten";
+import RecommendationWidget from '../components/RecommendationWidget';
 import { Pose } from "@mediapipe/pose";
 import { supabase } from "../lib/supabaseClient";
 
@@ -42,6 +47,12 @@ export default function TryOn() {
   const [garmentScale, setGarmentScale] = useState(2.6);
   const [garmentVerticalOffset, setGarmentVerticalOffset] = useState(-110);
   const [garmentHorizontalOffset, setGarmentHorizontalOffset] = useState(0);
+  const [currentProduct, setCurrentProduct] = useState(null);
+
+  // NEW: Pose guidance states
+  const [shouldersVisible, setShouldersVisible] = useState(false);
+  const [isStandingStraight, setIsStandingStraight] = useState(false);
+  const [distanceGood, setDistanceGood] = useState(false);
 
   if (!state) {
     return (
@@ -63,7 +74,16 @@ export default function TryOn() {
     img.onload = () => {
       productImgRef.current = img;
     };
-  }, [state.image]);
+    
+    // Set current product for recommendations
+    setCurrentProduct({
+      id: state.productId,
+      title: state.name || state.title,
+      price: state.price,
+      image: state.image,
+      url: state.link || state.buyUrl
+    });
+  }, [state]);
 
   useEffect(() => {
     const pose = new Pose({
@@ -75,7 +95,18 @@ export default function TryOn() {
     });
     pose.onResults((results) => {
       landmarksRef.current = results.poseLandmarks;
-      setPoseDetected(!!results.poseLandmarks);
+      const detected = !!results.poseLandmarks;
+      setPoseDetected(detected);
+      
+      // NEW: Analyze pose quality
+      if (detected && results.poseLandmarks) {
+        analyzePoseQuality(results.poseLandmarks);
+      } else {
+        // Reset all quality indicators when pose not detected
+        setShouldersVisible(false);
+        setIsStandingStraight(false);
+        setDistanceGood(false);
+      }
     });
     poseRef.current = pose;
     return () => {
@@ -85,6 +116,37 @@ export default function TryOn() {
       isDrawingRef.current = false;
     };
   }, []);
+
+  // NEW: Analyze pose quality and provide feedback
+  const analyzePoseQuality = (landmarks) => {
+    const leftShoulder = landmarks[11];
+    const rightShoulder = landmarks[12];
+    const nose = landmarks[0];
+    const leftHip = landmarks[23];
+    const rightHip = landmarks[24];
+    
+    // Check if shoulders are visible (good visibility)
+    const shouldersVisibleCheck = 
+      leftShoulder && rightShoulder && 
+      leftShoulder.visibility > 0.65 && 
+      rightShoulder.visibility > 0.65;
+    setShouldersVisible(shouldersVisibleCheck);
+    
+    // Check if standing straight (shoulders level)
+    if (leftShoulder && rightShoulder) {
+      const shoulderTilt = Math.abs(leftShoulder.y - rightShoulder.y);
+      const straightCheck = shoulderTilt < 0.08; // Threshold for acceptable tilt
+      setIsStandingStraight(straightCheck);
+    }
+    
+    // Check distance (shoulder width relative to frame)
+    if (leftShoulder && rightShoulder) {
+      const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
+      // Good distance: shoulders take up 20-50% of frame width
+      const distanceCheck = shoulderWidth > 0.2 && shoulderWidth < 0.5;
+      setDistanceGood(distanceCheck);
+    }
+  };
 
   const startCamera = async () => {
     try {
@@ -162,197 +224,139 @@ export default function TryOn() {
             bodyWidth = Math.max(bodyWidth, elbowWidth * 0.92);
           }
           
-          // Enhanced body proportion for realistic fit
-          let bodyProportionFactor = 1.05;
+          // Calculate torso length for proportional sizing
+          let torsoLength = 200;
           if (leftHip && rightHip && leftHip.visibility > 0.5 && rightHip.visibility > 0.5) {
-            const lHipX = mirrorX(leftHip.x);
-            const rHipX = mirrorX(rightHip.x);
-            const hipWidth = Math.abs(lHipX - rHipX);
-            const shoulderWidth = Math.abs(lShoulderX - rShoulderX);
-            const proportionRatio = hipWidth / shoulderWidth;
-            
-            if (proportionRatio > 0.95) {
-              bodyProportionFactor = 1.15 + (proportionRatio - 0.95) * 0.5;
-            } else if (proportionRatio > 0.85) {
-              bodyProportionFactor = 1.0 + (proportionRatio - 0.85) * 1.5;
-            } else {
-              bodyProportionFactor = 0.95 + (proportionRatio * 0.6);
-            }
+            const hipY = ((leftHip.y + rightHip.y) / 2) * canvas.height;
+            torsoLength = Math.abs(hipY - shoulderCenterY);
           }
           
-          // Calculate torso length for height adjustment
-          let torsoLengthFactor = 1.0;
-          if (leftHip && rightHip) {
-            const lHipY = leftHip.y * canvas.height;
-            const rHipY = rightHip.y * canvas.height;
-            const hipCenterY = (lHipY + rHipY) / 2;
-            const torsoLength = hipCenterY - shoulderCenterY;
-            const expectedTorso = canvas.height * 0.25;
-            torsoLengthFactor = torsoLength / expectedTorso;
-          }
+          // Dynamic garment scaling based on body measurements
+          const baseWidth = bodyWidth * garmentScale * depthFactor;
+          const baseHeight = torsoLength * 1.35;
           
-          // SMART NECKLINE CALCULATION
-          const distanceToShoulder = shoulderCenterY - noseY;
-          const neckY = noseY + (distanceToShoulder * 0.55);
+          // Position garment
+          const garmentX = shoulderCenterX + garmentHorizontalOffset;
+          const garmentY = shoulderCenterY + garmentVerticalOffset;
           
-          // ADAPTIVE GARMENT SIZE - applies depth factor for distance adjustment
-          const adaptiveScale = garmentScale * bodyProportionFactor * depthFactor;
-          const garmentWidth = bodyWidth * adaptiveScale;
-          const garmentHeight = garmentWidth * (productImgRef.current.height / productImgRef.current.width);
-          
-          // Adaptive height based on torso length
-          const finalGarmentHeight = garmentHeight * Math.min(torsoLengthFactor, 1.2);
-          
-          // Position
-          const garmentX = shoulderCenterX - garmentWidth / 2 + garmentHorizontalOffset;
-          const garmentY = neckY - (finalGarmentHeight * 0.02) + garmentVerticalOffset;
-          
-          // Rotation
-          const shoulderAngle = Math.atan2(rShoulderY - lShoulderY, rShoulderX - lShoulderX);
-          
-          ctx.save();
-          ctx.translate(shoulderCenterX, shoulderCenterY);
-          ctx.rotate(shoulderAngle * 0.35);
-          ctx.translate(-shoulderCenterX, -shoulderCenterY);
-          
-          // Perspective
-          const perspectiveScale = 1 + (shoulderCenterY / canvas.height) * 0.1;
-          const finalWidth = garmentWidth * perspectiveScale;
-          const finalHeight = finalGarmentHeight * perspectiveScale;
-          
-          // RENDER GARMENT WITH FULL OPACITY - REALISTIC LOOK
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-          ctx.shadowBlur = 25;
-          ctx.shadowOffsetY = 10;
-          ctx.globalAlpha = 1.0; // Completely opaque
-          ctx.drawImage(productImgRef.current, garmentX, garmentY, finalWidth, finalHeight);
-          
-          // REALISTIC FABRIC SHADING - minimal overlay for natural depth
-          ctx.shadowColor = 'transparent';
-          ctx.shadowBlur = 0;
-          ctx.globalCompositeOperation = 'soft-light';
-          ctx.globalAlpha = 0.05; // Very minimal shading
-          const gradient = ctx.createLinearGradient(shoulderCenterX, garmentY, shoulderCenterX, garmentY + finalHeight);
-          gradient.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
-          gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0)');
-          gradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
-          ctx.fillStyle = gradient;
-          ctx.fillRect(garmentX, garmentY, finalWidth, finalHeight);
-          ctx.restore();
+          // Draw the product garment
+          ctx.globalAlpha = 0.95;
+          ctx.drawImage(
+            productImgRef.current,
+            garmentX - baseWidth / 2,
+            garmentY,
+            baseWidth,
+            baseHeight
+          );
+          ctx.globalAlpha = 1.0;
         }
       }
     }
     animationRef.current = requestAnimationFrame(drawLoop);
   };
 
-  const captureImage = async () => {
-    if (!canvasRef.current) return;
-    const dataUrl = canvasRef.current.toDataURL("image/png");
-    setCapturedImage(dataUrl);
+  const captureImage = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const image = canvas.toDataURL("image/png");
+    setCapturedImage(image);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+    }
     setCameraOn(false);
     isDrawingRef.current = false;
-    if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
     if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    await saveToHistory(dataUrl);
-  };
-
-  const saveToHistory = async (imageData) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const fileName = `tryon_${Date.now()}.png`;
-      const blob = await fetch(imageData).then(r => r.blob());
-      const { error: uploadError } = await supabase.storage
-        .from("user-tryon-history").upload(`${user.id}/${fileName}`, blob);
-      if (uploadError) throw uploadError;
-      const { data: urlData } = supabase.storage.from("user-tryon-history")
-        .getPublicUrl(`${user.id}/${fileName}`);
-      await supabase.from("tryon_history").insert({
-        user_id: user.id, 
-        product_id: state.id, 
-        product_name: state.name,
-        product_image: state.image, 
-        image_data: imageData,
-        tryon_image: urlData.publicUrl, 
-        product_price: state.price,
-        is_saved: false
-      });
-      setSnackbar({ open: true, message: "✓ Saved to Try-On History!", severity: "success" });
-    } catch (err) {
-      console.error("Save to history error:", err);
-    }
   };
 
   const saveLook = async () => {
+    if (!capturedImage) return;
     setSavingLook(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-      
-      // If user has captured image, save it with is_saved=true
-      if (capturedImage) {
-        // First save to history
-        const canvas = canvasRef.current;
-        const imageData = canvas.toDataURL("image/png");
-        const fileName = `tryon_${Date.now()}.png`;
-        const base64Data = imageData.split(",")[1];
-        const blob = await fetch(`data:image/png;base64,${base64Data}`).then(r => r.blob());
-        
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from("user-tryon-history")
-          .upload(`${user.id}/${fileName}`, blob, { contentType: "image/png" });
-        
-        if (uploadError) throw uploadError;
-        
-        const { data: urlData } = supabase.storage.from("user-tryon-history").getPublicUrl(uploadData.path);
-        
-        // Insert with is_saved = true
-        await supabase.from("tryon_history").insert({
-          user_id: user.id, 
-          product_id: state.id, 
-          product_name: state.name,
-          product_image: state.image, 
-          image_data: imageData,
-          tryon_image: urlData.publicUrl, 
-          product_price: state.price,
-          is_saved: true
-        });
-      } else {
-        // Check if already saved
-        const { data: existing } = await supabase.from("tryon_history").select("id, is_saved")
-          .eq("user_id", user.id)
-          .eq("product_id", state.id)
-          .eq("is_saved", true)
-          .maybeSingle();
-        
-        if (existing) {
-          setSnackbar({ open: true, message: "Already in Saved Looks!", severity: "info" });
-          setSavingLook(false);
-          return;
-        }
-        
-        // Save product with product image as placeholder
-        await supabase.from("tryon_history").insert({
-          user_id: user.id, 
-          product_id: state.id, 
-          product_name: state.name,
-          product_image: state.image, 
-          image_data: state.image,
-          product_price: state.price,
-          is_saved: true
-        });
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        setSnackbar({ open: true, message: "Please login to save looks", severity: "warning" });
+        setSavingLook(false);
+        return;
       }
       
-      setSnackbar({ open: true, message: "❤️ Added to Saved Looks!", severity: "success" });
+      const { data: inserted, error: insertError } = await supabase
+        .from("tryon_history")
+        .insert({
+          user_id: user.id,
+          product_id: state.productId || "unknown",
+          product_name: state.name || state.title,
+          product_price: state.price,
+          product_image: state.image,
+          image_data: capturedImage,
+          is_saved: true
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("💥 Insert error:", insertError);
+        throw insertError;
+      }
+
+      console.log("✅ Saved successfully:", inserted);
+      setSnackbar({ open: true, message: "❤️ Saved to your collection!", severity: "success" });
+      
     } catch (err) {
-      console.error("Save look error:", err);
-      setSnackbar({ open: true, message: "Failed to save look", severity: "error" });
+      console.error("💥 Save look error:", err);
+      setSnackbar({ 
+        open: true, 
+        message: `Failed to save: ${err.message}`, 
+        severity: "error" 
+      });
     } finally {
       setSavingLook(false);
     }
   };
+
+  // NEW: Get guidance message based on pose quality
+  const getGuidanceMessage = () => {
+    if (!cameraOn || capturedImage) return null;
+    
+    if (!poseDetected) {
+      return {
+        text: "Position yourself in frame",
+        icon: <WarningIcon />,
+        color: "warning"
+      };
+    }
+    
+    if (!shouldersVisible) {
+      return {
+        text: "Ensure both shoulders are visible",
+        icon: <VisibilityIcon />,
+        color: "warning"
+      };
+    }
+    
+    if (!isStandingStraight) {
+      return {
+        text: "Stand straight - level your shoulders",
+        icon: <StraightenIcon />,
+        color: "warning"
+      };
+    }
+    
+    if (!distanceGood) {
+      return {
+        text: "Adjust distance - step back or forward",
+        icon: <WarningIcon />,
+        color: "warning"
+      };
+    }
+    
+    return {
+      text: "Perfect! Ready to capture",
+      icon: <CheckCircleIcon />,
+      color: "success"
+    };
+  };
+
+  const guidance = getGuidanceMessage();
 
   return (
     <Box sx={{ minHeight: "100vh", background: THEME.pageBg, pb: 4 }}>
@@ -362,6 +366,7 @@ export default function TryOn() {
       </Box>
 
       <Box sx={{ maxWidth: 1200, mx: "auto", px: 2, mt: 3, display: "flex", gap: 3, flexDirection: { xs: "column", md: "row" } }}>
+        {/* Product Card */}
         <Box sx={{ flex: "0 0 300px" }}>
           <Card elevation={3} sx={{ borderRadius: 3 }}>
             <Box sx={{ bgcolor: "#f5f5f5", p: 3, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 280 }}>
@@ -369,22 +374,129 @@ export default function TryOn() {
             </Box>
             <CardContent>
               <Typography variant="h6" fontWeight={700}>{state.name}</Typography>
-              <Typography variant="h5" color={THEME.primary} fontWeight={800} sx={{ mt: 1 }}>₹{state.price}</Typography>
-              <Button fullWidth variant="outlined" startIcon={<FavoriteIcon />} onClick={saveLook} disabled={savingLook}
-                sx={{ mt: 2, fontWeight: 600, borderColor: THEME.primary, color: THEME.primary, 
-                  "&:hover": { borderColor: THEME.primary, bgcolor: "rgba(108, 92, 231, 0.08)" } }}>
-                {savingLook ? "Saving..." : "Save Look"}
+              <Typography variant="h5" color={THEME.primary} fontWeight={800} sx={{ mt: 1 }}>{state.price}</Typography>
+              <Button 
+                fullWidth 
+                variant="contained" 
+                startIcon={<ShoppingBagIcon />} 
+                sx={{ 
+                  mt: 2, 
+                  bgcolor: THEME.primary, 
+                  fontWeight: 600, 
+                  py: 1.5, 
+                  "&:hover": { bgcolor: "#5a4bc7" } 
+                }}
+                onClick={() => window.open(state.link, "_blank")}
+              >
+                BUY ON H&M
               </Button>
-              <Button fullWidth variant="contained" startIcon={<ShoppingBagIcon />} 
-                sx={{ mt: 1, bgcolor: THEME.primary, fontWeight: 600, py: 1.5, "&:hover": { bgcolor: "#5a4bc7" } }}
-                onClick={() => window.open(state.link, "_blank")}>BUY ON H&M</Button>
             </CardContent>
           </Card>
+
+          {/* NEW: Pose Quality Indicators Card */}
+          {cameraOn && !capturedImage && (
+            <Fade in={true}>
+              <Card elevation={3} sx={{ borderRadius: 3, mt: 2, bgcolor: "#f8f9fa" }}>
+                <CardContent>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, display: "flex", alignItems: "center", gap: 1 }}>
+                    📋 Pose Checklist
+                  </Typography>
+                  
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                    {/* Pose Detected */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      {poseDetected ? (
+                        <CheckCircleIcon sx={{ fontSize: 20, color: "#4caf50" }} />
+                      ) : (
+                        <WarningIcon sx={{ fontSize: 20, color: "#ff9800" }} />
+                      )}
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: poseDetected ? 600 : 400,
+                        color: poseDetected ? "#2e7d32" : "#ed6c02"
+                      }}>
+                        Body detected
+                      </Typography>
+                    </Box>
+
+                    {/* Shoulders Visible */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      {shouldersVisible ? (
+                        <CheckCircleIcon sx={{ fontSize: 20, color: "#4caf50" }} />
+                      ) : (
+                        <WarningIcon sx={{ fontSize: 20, color: "#ff9800" }} />
+                      )}
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: shouldersVisible ? 600 : 400,
+                        color: shouldersVisible ? "#2e7d32" : "#ed6c02"
+                      }}>
+                        Both shoulders visible
+                      </Typography>
+                    </Box>
+
+                    {/* Standing Straight */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      {isStandingStraight ? (
+                        <CheckCircleIcon sx={{ fontSize: 20, color: "#4caf50" }} />
+                      ) : (
+                        <WarningIcon sx={{ fontSize: 20, color: "#ff9800" }} />
+                      )}
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: isStandingStraight ? 600 : 400,
+                        color: isStandingStraight ? "#2e7d32" : "#ed6c02"
+                      }}>
+                        Standing straight
+                      </Typography>
+                    </Box>
+
+                    {/* Good Distance */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      {distanceGood ? (
+                        <CheckCircleIcon sx={{ fontSize: 20, color: "#4caf50" }} />
+                      ) : (
+                        <WarningIcon sx={{ fontSize: 20, color: "#ff9800" }} />
+                      )}
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: distanceGood ? 600 : 400,
+                        color: distanceGood ? "#2e7d32" : "#ed6c02"
+                      }}>
+                        Good distance
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Overall Status */}
+                  {poseDetected && shouldersVisible && isStandingStraight && distanceGood && (
+                    <Box sx={{ 
+                      mt: 2, 
+                      pt: 2, 
+                      borderTop: "1px solid #e0e0e0",
+                      textAlign: "center"
+                    }}>
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 700, 
+                        color: "#2e7d32",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 0.5
+                      }}>
+                        <CheckCircleIcon sx={{ fontSize: 16 }} />
+                        Perfect pose! 🎉
+                      </Typography>
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            </Fade>
+          )}
         </Box>
 
+        {/* Camera/Try-On Section */}
         <Box sx={{ flex: 1 }}>
           <Box sx={{ mb: 2, display: "flex", justifyContent: "flex-end" }}>
-            <IconButton onClick={() => setShowSettings(!showSettings)} sx={{ bgcolor: "white", boxShadow: 2 }}><TuneIcon /></IconButton>
+            <IconButton onClick={() => setShowSettings(!showSettings)} sx={{ bgcolor: "white", boxShadow: 2 }}>
+              <TuneIcon />
+            </IconButton>
           </Box>
 
           {showSettings && (
@@ -407,44 +519,252 @@ export default function TryOn() {
           )}
 
           <Card elevation={3} sx={{ borderRadius: 3 }}>
+            {/* Header with enhanced status */}
             <Box sx={{ bgcolor: "white", p: 2, borderBottom: "1px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <Typography variant="subtitle1" fontWeight={600}>{capturedImage ? "📸 Your Look" : cameraOn ? "👕 Try On" : "Ready"}</Typography>
-              {cameraOn && <Chip label={poseDetected ? "✓ Looking Great!" : "Position yourself"} color={poseDetected ? "success" : "warning"} size="small" sx={{ fontWeight: 600 }} />}
+              <Typography variant="subtitle1" fontWeight={600}>
+                {capturedImage ? "📸 Your Look" : cameraOn ? "👕 Try On" : "Ready"}
+              </Typography>
+              
+              {/* Enhanced status chip */}
+              {cameraOn && !capturedImage && (
+                <Chip 
+                  label={
+                    poseDetected && shouldersVisible && isStandingStraight && distanceGood
+                      ? "✓ Perfect Pose!" 
+                      : poseDetected 
+                      ? "Position yourself" 
+                      : "Move into frame"
+                  }
+                  color={
+                    poseDetected && shouldersVisible && isStandingStraight && distanceGood
+                      ? "success" 
+                      : poseDetected 
+                      ? "warning" 
+                      : "error"
+                  }
+                  size="small" 
+                  sx={{ fontWeight: 600 }} 
+                />
+              )}
             </Box>
 
+            {/* Camera View */}
             <Box sx={{ position: "relative", bgcolor: "#1a1a1a", aspectRatio: "4/3", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {/* Start Screen */}
               {!cameraOn && !capturedImage && (
                 <Box sx={{ textAlign: "center", color: "white", p: 4 }}>
                   <CameraAltIcon sx={{ fontSize: 64, mb: 2, opacity: 0.7 }} />
                   <Typography variant="h6">See How It Looks On You!</Typography>
-                  <Typography variant="body2" sx={{ mb: 3, opacity: 0.8 }}>Position your upper body in frame</Typography>
-                  <Button variant="contained" size="large" startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CameraAltIcon />}
-                    onClick={startCamera} disabled={loading} sx={{ bgcolor: THEME.primary, px: 4, py: 1.5, fontWeight: 600 }}>
+                  <Typography variant="body2" sx={{ mb: 1, opacity: 0.8 }}>
+                    Position your upper body in frame
+                  </Typography>
+                  <Typography variant="caption" sx={{ mb: 3, opacity: 0.6, display: "block" }}>
+                    💡 Tip: Stand 3-4 feet from camera
+                  </Typography>
+                  <Button 
+                    variant="contained" 
+                    size="large" 
+                    startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CameraAltIcon />}
+                    onClick={startCamera} 
+                    disabled={loading} 
+                    sx={{ bgcolor: THEME.primary, px: 4, py: 1.5, fontWeight: 600 }}
+                  >
                     {loading ? "Starting..." : "Start"}
                   </Button>
                 </Box>
               )}
-              {capturedImage && <img src={capturedImage} alt="Captured" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
-              <canvas ref={canvasRef} style={{ width: "100%", height: "100%", objectFit: "cover", display: cameraOn && !capturedImage ? "block" : "none" }} />
+
+              {/* Captured Image */}
+              {capturedImage && (
+                <img src={capturedImage} alt="Captured" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              )}
+
+              {/* Live Camera */}
+              <canvas 
+                ref={canvasRef} 
+                style={{ 
+                  width: "100%", 
+                  height: "100%", 
+                  objectFit: "cover", 
+                  display: cameraOn && !capturedImage ? "block" : "none" 
+                }} 
+              />
               <video ref={videoRef} autoPlay playsInline muted style={{ display: "none" }} />
+
+              {/* NEW: On-Screen Guidance Overlay */}
+              {guidance && cameraOn && !capturedImage && (
+                <Fade in={true}>
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      top: 16,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      bgcolor: guidance.color === "success" 
+                        ? "rgba(46, 125, 50, 0.95)" 
+                        : "rgba(237, 108, 2, 0.95)",
+                      color: "white",
+                      px: 3,
+                      py: 1.5,
+                      borderRadius: 3,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                      zIndex: 10
+                    }}
+                  >
+                    {guidance.icon}
+                    <Typography variant="body2" fontWeight={600}>
+                      {guidance.text}
+                    </Typography>
+                  </Box>
+                </Fade>
+              )}
+
+              {/* NEW: Corner Guides (when camera is on but pose not detected) */}
+              {cameraOn && !capturedImage && !poseDetected && (
+                <>
+                  {/* Top-left corner guide */}
+                  <Box sx={{
+                    position: "absolute",
+                    top: 20,
+                    left: 20,
+                    width: 40,
+                    height: 40,
+                    borderTop: "3px solid rgba(255, 255, 255, 0.5)",
+                    borderLeft: "3px solid rgba(255, 255, 255, 0.5)",
+                    zIndex: 5
+                  }} />
+                  
+                  {/* Top-right corner guide */}
+                  <Box sx={{
+                    position: "absolute",
+                    top: 20,
+                    right: 20,
+                    width: 40,
+                    height: 40,
+                    borderTop: "3px solid rgba(255, 255, 255, 0.5)",
+                    borderRight: "3px solid rgba(255, 255, 255, 0.5)",
+                    zIndex: 5
+                  }} />
+                  
+                  {/* Bottom-left corner guide */}
+                  <Box sx={{
+                    position: "absolute",
+                    bottom: 20,
+                    left: 20,
+                    width: 40,
+                    height: 40,
+                    borderBottom: "3px solid rgba(255, 255, 255, 0.5)",
+                    borderLeft: "3px solid rgba(255, 255, 255, 0.5)",
+                    zIndex: 5
+                  }} />
+                  
+                  {/* Bottom-right corner guide */}
+                  <Box sx={{
+                    position: "absolute",
+                    bottom: 20,
+                    right: 20,
+                    width: 40,
+                    height: 40,
+                    borderBottom: "3px solid rgba(255, 255, 255, 0.5)",
+                    borderRight: "3px solid rgba(255, 255, 255, 0.5)",
+                    zIndex: 5
+                  }} />
+                </>
+              )}
             </Box>
 
+            {/* Action Buttons */}
             <Box sx={{ p: 2, display: "flex", gap: 2, justifyContent: "center", bgcolor: "white" }}>
               {cameraOn && !capturedImage && (
-                <Button variant="contained" size="large" onClick={captureImage} disabled={!poseDetected}
-                  sx={{ bgcolor: THEME.primary, px: 4, fontWeight: 600 }}>📸 Capture</Button>
+                <Button 
+                  variant="contained" 
+                  size="large" 
+                  onClick={captureImage} 
+                  disabled={!poseDetected || !shouldersVisible || !isStandingStraight}
+                  sx={{ 
+                    bgcolor: THEME.primary, 
+                    px: 4, 
+                    fontWeight: 600,
+                    "&:disabled": {
+                      bgcolor: "#e0e0e0",
+                      color: "#9e9e9e"
+                    }
+                  }}
+                >
+                  📸 Capture
+                </Button>
               )}
               {capturedImage && (
-                <Button variant="outlined" size="large" startIcon={<RestartAltIcon />} onClick={() => { setCapturedImage(null); startCamera(); }}
-                  sx={{ fontWeight: 600, px: 3 }}>Retake</Button>
+                <>
+                  <Button 
+                    variant="outlined" 
+                    size="large" 
+                    startIcon={<RestartAltIcon />} 
+                    onClick={() => { 
+                      setCapturedImage(null); 
+                      startCamera(); 
+                    }}
+                    sx={{ fontWeight: 600, px: 3 }}
+                  >
+                    Retake
+                  </Button>
+                  <Button 
+                    variant="contained" 
+                    size="large" 
+                    startIcon={savingLook ? <CircularProgress size={20} color="inherit" /> : <FavoriteIcon />}
+                    onClick={saveLook} 
+                    disabled={savingLook}
+                    sx={{ 
+                      bgcolor: "#e91e63", 
+                      px: 3, 
+                      fontWeight: 600,
+                      "&:hover": { bgcolor: "#c2185b" }
+                    }}
+                  >
+                    {savingLook ? "Saving..." : "Save Look"}
+                  </Button>
+                </>
               )}
             </Box>
           </Card>
         </Box>
       </Box>
 
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({...snackbar, open: false})} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
-        <Alert severity={snackbar.severity} sx={{ fontWeight: 600 }} onClose={() => setSnackbar({...snackbar, open: false})}>{snackbar.message}</Alert>
+      {/* Recommendations Section */}
+      <Box sx={{ maxWidth: 1200, mx: "auto", px: 3, mt: 4 }}>
+        {currentProduct && (
+          <RecommendationWidget
+            type="similar"
+            currentProduct={currentProduct}
+            title="You May Also Like"
+            count={4}
+          />
+        )}
+
+        <RecommendationWidget
+          type="history-based"
+          title="Based on Your Recent Try-Ons"
+          count={4}
+          compact={true}
+        />
+      </Box>
+
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={3000} 
+        onClose={() => setSnackbar({...snackbar, open: false})} 
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert 
+          severity={snackbar.severity} 
+          sx={{ fontWeight: 600 }} 
+          onClose={() => setSnackbar({...snackbar, open: false})}
+        >
+          {snackbar.message}
+        </Alert>
       </Snackbar>
     </Box>
   );

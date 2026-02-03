@@ -14,6 +14,11 @@ import Signup from "./components/Signup";
 import Dashboard from "./components/Dashboard";
 import TryOnHistory from "./components/TryOnHistory";
 import TryOn from "./pages/TryOn";
+import UploadTryOn from './components/UploadTryOn';
+import UserProfile from './components/UserProfile';
+import MyCloset from "./pages/MyCloset";   
+import Recommendations from "./components/Recommendations";
+
 
 // 🔐 Auth pages
 import ForgotPassword from "./components/ForgotPassword";
@@ -65,6 +70,11 @@ export default function App() {
         <Route path="/tryon-history" element={<TryOnHistory />} />
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/upload-tryon" element={<UploadTryOn />} />
+        <Route path="/profile" element={<UserProfile />} />
+        <Route path="/mycloset" element={<MyCloset />} />
+        <Route path="/recommendations" element={<Recommendations />} />
+
       </Routes>
     </Router>
   );
