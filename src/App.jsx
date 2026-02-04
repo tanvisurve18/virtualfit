@@ -16,7 +16,7 @@ import TryOnHistory from "./components/TryOnHistory";
 import TryOn from "./pages/TryOn";
 import UploadTryOn from './components/UploadTryOn';
 import UserProfile from './components/UserProfile';
-import MyCloset from "./pages/MyCloset";   
+import MyCloset from "./pages/Mycloset";   
 import Recommendations from "./components/Recommendations";
 
 
