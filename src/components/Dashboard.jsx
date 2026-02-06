@@ -208,7 +208,20 @@ export default function Dashboard() {
     <Box sx={{ minHeight: "100vh", bgcolor: THEME.pageBg, display: "flex" }}>
       {/* Desktop Sidebar */}
       {!isMobile && (
-        <Sidebar userName={userName} activeView={activeView} onViewChange={handleViewChange} />
+        <Box
+          sx={{
+            width: 240,
+            position: "fixed",
+            height: "100vh",
+            left: 0,
+            top: 0,
+            bgcolor: "white",
+            borderRight: "1px solid #f0f0f0",
+            zIndex: 1200,
+          }}
+        >
+          <Sidebar userName={userName} activeView={activeView} onViewChange={handleViewChange} />
+        </Box>
       )}
 
       {/* Mobile Drawer Sidebar */}
@@ -219,17 +232,35 @@ export default function Dashboard() {
           onClose={() => setSidebarOpen(false)}
           sx={{
             '& .MuiDrawer-paper': {
-              width: 240,
+              width: 280,
               boxSizing: 'border-box',
             },
           }}
         >
-          <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end' }}>
-            <IconButton onClick={() => setSidebarOpen(false)}>
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            p: 2,
+            borderBottom: '1px solid #f0f0f0'
+          }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 18, color: THEME.primary }}>
+              Menu
+            </Typography>
+            <IconButton 
+              onClick={() => setSidebarOpen(false)}
+              sx={{ 
+                '&:hover': { 
+                  bgcolor: 'rgba(108, 92, 231, 0.1)' 
+                }
+              }}
+            >
               <CloseIcon />
             </IconButton>
           </Box>
-          <Sidebar userName={userName} activeView={activeView} onViewChange={handleViewChange} />
+          <Box sx={{ height: 'calc(100vh - 73px)', overflow: 'auto' }}>
+            <Sidebar userName={userName} activeView={activeView} onViewChange={handleViewChange} />
+          </Box>
         </Drawer>
       )}
 
