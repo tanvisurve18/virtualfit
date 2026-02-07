@@ -13,6 +13,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WarningIcon from "@mui/icons-material/Warning";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import dashboard from '../components/Dashboard';
 import StraightenIcon from "@mui/icons-material/Straighten";
 import RecommendationWidget from '../components/RecommendationWidget';
 import { Pose } from "@mediapipe/pose";

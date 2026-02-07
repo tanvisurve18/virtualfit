@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { 
   Box, Typography, Card, CardMedia, CardContent, Button, IconButton, 
   Snackbar, Alert, Tabs, Tab, CircularProgress, Container, useMediaQuery, useTheme,
-  Drawer
+  Drawer, Grid
 } from "@mui/material";
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
@@ -31,6 +31,8 @@ export default function Dashboard() {
   const [productCategory, setProductCategory] = useState(0);
   const [history, setHistory] = useState([]);
   const [savedLooks, setSavedLooks] = useState([]);
+  const [closetItems, setClosetItems] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savedProducts, setSavedProducts] = useState(new Set());
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
@@ -51,6 +53,10 @@ export default function Dashboard() {
       fetchHistory();
     } else if (activeView === "saved") {
       fetchSavedLooks();
+    } else if (activeView === "closet") {
+      fetchClosetItems();
+    } else if (activeView === "recommendations") {
+      fetchRecommendations();
     }
   }, [activeView]);
 
@@ -105,6 +111,13 @@ export default function Dashboard() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+      
+      // Debug: Log the data to see what fields are available
+      console.log("History data from DB:", data);
+      if (data && data.length > 0) {
+        console.log("First item fields:", Object.keys(data[0]));
+      }
+      
       setHistory(data || []);
     } catch (err) {
       console.error("Failed to fetch history:", err);
@@ -127,9 +140,59 @@ export default function Dashboard() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+      
+      // Debug: Log the data to see what fields are available
+      console.log("Saved looks data from DB:", data);
+      if (data && data.length > 0) {
+        console.log("First saved look fields:", Object.keys(data[0]));
+      }
+      
       setSavedLooks(data || []);
     } catch (err) {
       console.error("Failed to fetch saved looks:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchClosetItems() {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+
+      const { data, error } = await supabase
+        .from("closet_items")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setClosetItems(data || []);
+    } catch (err) {
+      console.error("Failed to fetch closet items:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchRecommendations() {
+    setLoading(true);
+    try {
+      // For now, show random products as recommendations
+      // You can implement AI-based recommendations later
+      const allProducts = [...hmMenTshirts, ...hmWomenTshirts];
+      const shuffled = allProducts.sort(() => 0.5 - Math.random());
+      const recommended = shuffled.slice(0, 12).map((item, index) => ({
+        id: item.id || index,
+        title: item.title,
+        price: item.price,
+        image: item.image,
+        product_url: item.url,
+      }));
+      setRecommendations(recommended);
+    } catch (err) {
+      console.error("Failed to fetch recommendations:", err);
     } finally {
       setLoading(false);
     }
@@ -186,27 +249,181 @@ export default function Dashboard() {
   }
 
   function handleTryOn(product) {
-    navigate("/upload-tryon", {
+    // Navigate to live try-on page with selected product
+    navigate("/live-tryon", {
       state: {
-        image: product.image,
-        name: product.title,
-        price: product.price,
-        link: product.product_url,
-        productId: product.id
+        garment_image: product.image,
+        product_name: product.title,
+        product_price: product.price,
+        product_url: product.product_url,
+        product_id: product.id
       }
     });
   }
 
   function handleViewChange(view) {
-    setActiveView(view);
+    if (view === "upload-tryon") {
+      // Navigate to upload try-on page without product pre-selected
+      navigate("/upload-tryon");
+    } else if (view === "profile") {
+      navigate("/profile");
+    } else {
+      setActiveView(view);
+    }
+    
     if (isMobile) {
       setSidebarOpen(false);
     }
   }
 
+  const ProductCard = ({ product }) => (
+    <Card
+      sx={{
+        borderRadius: { xs: 2, md: 3 },
+        overflow: "hidden",
+        position: "relative",
+        boxShadow: { xs: "0 1px 8px rgba(0,0,0,0.06)", md: "0 2px 12px rgba(0,0,0,0.08)" },
+        transition: "all 0.25s ease",
+        "&:hover": {
+          transform: { xs: "none", md: "translateY(-4px)" },
+          boxShadow: { xs: "0 2px 12px rgba(0,0,0,0.1)", md: "0 8px 24px rgba(108,92,231,0.15)" },
+        },
+      }}
+    >
+      <IconButton
+        onClick={() => saveToCloset(product)}
+        sx={{
+          position: "absolute",
+          top: { xs: 8, md: 12 },
+          right: { xs: 8, md: 12 },
+          zIndex: 2,
+          width: { xs: 36, md: 44 },
+          height: { xs: 36, md: 44 },
+          bgcolor: "rgba(255, 255, 255, 0.95)",
+          backdropFilter: "blur(8px)",
+          boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
+          "&:hover": {
+            bgcolor: "white",
+            transform: "scale(1.08)"
+          }
+        }}
+      >
+        {savedProducts.has(String(product.id)) ? (
+          <FavoriteIcon sx={{ color: "#e91e63", fontSize: { xs: 20, md: 24 } }} />
+        ) : (
+          <FavoriteBorderIcon sx={{ fontSize: { xs: 20, md: 24 }, color: "#666" }} />
+        )}
+      </IconButton>
+
+      <Box
+        sx={{
+          width: "100%",
+          aspectRatio: "3/4",
+          bgcolor: "#fafafa",
+          overflow: "hidden"
+        }}
+      >
+        <CardMedia
+          component="img"
+          image={product.image}
+          alt={product.title}
+          onError={(e) => {
+            e.target.src = "https://via.placeholder.com/400x500/f0f0f0/666666?text=H%26M";
+          }}
+          sx={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: "center top"
+          }}
+        />
+      </Box>
+
+      <CardContent sx={{ 
+        p: { xs: 2, md: 2.5 }, 
+        pb: { xs: 1.5, md: 2 } 
+      }}>
+        <Typography
+          fontSize={{ xs: 14, md: 15 }}
+          fontWeight={600}
+          sx={{
+            mb: { xs: 0.8, md: 1 },
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            lineHeight: 1.4,
+            minHeight: { xs: 38, md: 42 }
+          }}
+        >
+          {product.title}
+        </Typography>
+
+        <Typography 
+          fontSize={{ xs: 17, md: 20 }} 
+          fontWeight={800} 
+          color={THEME.primary}
+        >
+          {product.price}
+        </Typography>
+      </CardContent>
+
+      <Box sx={{ 
+        px: { xs: 2, md: 2.5 }, 
+        pb: { xs: 2, md: 2.5 }, 
+        display: "flex", 
+        flexDirection: "column", 
+        gap: { xs: 1, md: 1.2 }
+      }}>
+        <Button
+          fullWidth
+          variant="contained"
+          onClick={() => handleTryOn(product)}
+          sx={{ 
+            fontWeight: 700, 
+            bgcolor: THEME.primary,
+            fontSize: { xs: 13, md: 14 },
+            py: { xs: 1.1, md: 1.4 },
+            borderRadius: { xs: 1.5, md: 2 },
+            textTransform: "none",
+            boxShadow: "0 4px 12px rgba(108, 92, 231, 0.3)",
+            "&:hover": {
+              bgcolor: "#5a4bc7",
+              boxShadow: "0 6px 16px rgba(108, 92, 231, 0.4)",
+            }
+          }}
+        >
+          Try On
+        </Button>
+
+        <Button
+          fullWidth
+          variant="outlined"
+          onClick={() => window.open(product.product_url, "_blank")}
+          sx={{ 
+            fontWeight: 700,
+            fontSize: { xs: 13, md: 14 },
+            py: { xs: 1.1, md: 1.4 },
+            borderRadius: { xs: 1.5, md: 2 },
+            textTransform: "none",
+            borderColor: THEME.primary,
+            color: THEME.primary,
+            borderWidth: 2,
+            "&:hover": {
+              borderWidth: 2,
+              borderColor: "#5a4bc7",
+              bgcolor: `${THEME.primary}08`
+            }
+          }}
+        >
+          Buy on H&M
+        </Button>
+      </Box>
+    </Card>
+  );
+
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: THEME.pageBg, display: "flex" }}>
-      {/* Desktop Sidebar */}
       {!isMobile && (
         <Box
           sx={{
@@ -224,7 +441,6 @@ export default function Dashboard() {
         </Box>
       )}
 
-      {/* Mobile Drawer Sidebar */}
       {isMobile && (
         <Drawer
           anchor="left"
@@ -273,7 +489,6 @@ export default function Dashboard() {
           minHeight: "100vh"
         }}
       >
-        {/* HEADER */}
         <Box sx={{ 
           p: { xs: 2, md: 3 }, 
           borderRadius: { xs: 0, md: 3 }, 
@@ -283,7 +498,6 @@ export default function Dashboard() {
           mt: { xs: 0, md: 3 },
           position: 'relative'
         }}>
-          {/* Mobile Menu Button */}
           {isMobile && (
             <IconButton
               onClick={() => setSidebarOpen(true)}
@@ -313,26 +527,28 @@ export default function Dashboard() {
             ml: { xs: isMobile ? 6 : 0, md: 0 }
           }}>
             {activeView === "overview" && "Try H&M outfits virtually"}
+            {activeView === "recommendations" && "Personalized picks just for you"}
             {activeView === "history" && "View all your captured try-ons"}
             {activeView === "saved" && "Your favorite looks collection"}
+            {activeView === "closet" && "Your personal closet collection"}
+            {activeView === "upload-tryon" && "Upload your photo to try on outfits"}
           </Typography>
         </Box>
 
         <Container 
           maxWidth="lg" 
           sx={{ 
-            px: { xs: 1.5, sm: 2, md: 3 },
+            px: { xs: 2, sm: 2.5, md: 3 },
             pb: { xs: 3, md: 4 }
           }}
         >
           {activeView === "overview" && (
             <Box>
-              {/* TABS - Scrollable on mobile */}
               <Box sx={{ 
                 mb: { xs: 2, md: 3 }, 
                 borderBottom: 1, 
                 borderColor: "divider",
-                mx: { xs: -1.5, sm: 0 }
+                mx: { xs: -2, sm: 0 }
               }}>
                 <Tabs 
                   value={productCategory} 
@@ -341,7 +557,7 @@ export default function Dashboard() {
                   scrollButtons={isMobile ? "auto" : false}
                   allowScrollButtonsMobile
                   sx={{
-                    px: { xs: 1.5, sm: 0 },
+                    px: { xs: 2, sm: 0 },
                     "& .MuiTab-root": {
                       fontWeight: 700,
                       fontSize: { xs: "0.875rem", md: "1rem" },
@@ -351,9 +567,6 @@ export default function Dashboard() {
                     },
                     "& .Mui-selected": { color: THEME.primary },
                     "& .MuiTabs-indicator": { backgroundColor: THEME.primary },
-                    "& .MuiTabs-scrollButtons": {
-                      "&.Mui-disabled": { opacity: 0.3 }
-                    }
                   }}
                 >
                   <Tab label="👕 Men's Collection" />
@@ -363,175 +576,294 @@ export default function Dashboard() {
 
               <Typography sx={{ 
                 fontWeight: 800, 
-                fontSize: { xs: 16, md: 22 }, 
-                mb: { xs: 2, md: 3 },
-                px: { xs: 0.5, sm: 0 }
+                fontSize: { xs: 18, md: 22 }, 
+                mb: { xs: 2.5, md: 3 }
               }}>
                 {productCategory === 0 ? "H&M Men T-Shirts 👕" : "H&M Women T-Shirts & Tops 👚"}
               </Typography>
 
-              {/* PRODUCT GRID - 2 columns on mobile like Meesho */}
               <Box
                 sx={{
                   display: "grid",
                   gridTemplateColumns: {
-                    xs: "repeat(2, 1fr)", // 2 columns on mobile
+                    xs: "repeat(2, 1fr)",
                     sm: "repeat(2, 1fr)",
                     md: "repeat(3, 1fr)",
                     lg: "repeat(4, 1fr)",
                   },
-                  gap: { xs: 1.5, sm: 2, md: 3 },
+                  gap: { xs: 2, sm: 2.5, md: 3 },
                   pb: { xs: 3, md: 5 }
                 }}
               >
                 {products.map((product) => (
-                  <Card
-                    key={product.id}
-                    sx={{
-                      borderRadius: { xs: 2, md: 3 },
-                      overflow: "hidden",
-                      position: "relative",
-                      boxShadow: { xs: "0 1px 8px rgba(0,0,0,0.06)", md: "0 2px 12px rgba(0,0,0,0.08)" },
-                      transition: "all 0.25s ease",
-                      "&:hover": {
-                        transform: { xs: "none", md: "translateY(-4px)" },
-                        boxShadow: { xs: "0 2px 12px rgba(0,0,0,0.1)", md: "0 8px 24px rgba(108,92,231,0.15)" },
-                      },
-                    }}
-                  >
-                    <IconButton
-                      onClick={() => saveToCloset(product)}
-                      sx={{
-                        position: "absolute",
-                        top: { xs: 6, md: 10 },
-                        right: { xs: 6, md: 10 },
-                        zIndex: 2,
-                        width: { xs: 32, md: 44 },
-                        height: { xs: 32, md: 44 },
-                        bgcolor: "rgba(255, 255, 255, 0.95)",
-                        backdropFilter: "blur(8px)",
-                        boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
-                        "&:hover": {
-                          bgcolor: "white",
-                          transform: "scale(1.08)"
-                        }
-                      }}
-                    >
-                      {savedProducts.has(String(product.id)) ? (
-                        <FavoriteIcon sx={{ color: "#e91e63", fontSize: { xs: 18, md: 24 } }} />
-                      ) : (
-                        <FavoriteBorderIcon sx={{ fontSize: { xs: 18, md: 24 }, color: "#666" }} />
-                      )}
-                    </IconButton>
-
-                    {/* PRODUCT IMAGE */}
-                    <Box
-                      sx={{
-                        width: "100%",
-                        aspectRatio: "3/4",
-                        bgcolor: "#fafafa",
-                        overflow: "hidden"
-                      }}
-                    >
-                      <CardMedia
-                        component="img"
-                        image={product.image}
-                        alt={product.title}
-                        onError={(e) => {
-                          e.target.src = "https://via.placeholder.com/400x500/f0f0f0/666666?text=H%26M";
-                        }}
-                        sx={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                          objectPosition: "center top"
-                        }}
-                      />
-                    </Box>
-
-                    <CardContent sx={{ 
-                      p: { xs: 1.5, md: 2.5 }, 
-                      pb: { xs: 1, md: 2 } 
-                    }}>
-                      <Typography
-                        fontSize={{ xs: 13, md: 15 }}
-                        fontWeight={600}
-                        sx={{
-                          mb: { xs: 0.5, md: 1 },
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                          lineHeight: 1.4,
-                          minHeight: { xs: 36, md: 42 }
-                        }}
-                      >
-                        {product.title}
-                      </Typography>
-
-                      <Typography 
-                        fontSize={{ xs: 16, md: 20 }} 
-                        fontWeight={800} 
-                        color={THEME.primary}
-                      >
-                        {product.price}
-                      </Typography>
-                    </CardContent>
-
-                    <Box sx={{ 
-                      px: { xs: 1.5, md: 2.5 }, 
-                      pb: { xs: 1.5, md: 2.5 }, 
-                      display: "flex", 
-                      flexDirection: "column", 
-                      gap: { xs: 0.8, md: 1.2 }
-                    }}>
-                      <Button
-                        fullWidth
-                        variant="contained"
-                        onClick={() => handleTryOn(product)}
-                        sx={{ 
-                          fontWeight: 700, 
-                          bgcolor: THEME.primary,
-                          fontSize: { xs: 12, md: 14 },
-                          py: { xs: 1, md: 1.4 },
-                          borderRadius: { xs: 1.5, md: 2 },
-                          textTransform: "none",
-                          boxShadow: "0 4px 12px rgba(108, 92, 231, 0.3)",
-                          "&:hover": {
-                            bgcolor: "#5a4bc7",
-                            boxShadow: "0 6px 16px rgba(108, 92, 231, 0.4)",
-                          }
-                        }}
-                      >
-                        Try On
-                      </Button>
-
-                      <Button
-                        fullWidth
-                        variant="outlined"
-                        onClick={() => window.open(product.product_url, "_blank")}
-                        sx={{ 
-                          fontWeight: 700,
-                          fontSize: { xs: 12, md: 14 },
-                          py: { xs: 1, md: 1.4 },
-                          borderRadius: { xs: 1.5, md: 2 },
-                          textTransform: "none",
-                          borderColor: THEME.primary,
-                          color: THEME.primary,
-                          borderWidth: 2,
-                          "&:hover": {
-                            borderWidth: 2,
-                            borderColor: "#5a4bc7",
-                            bgcolor: `${THEME.primary}08`
-                          }
-                        }}
-                      >
-                        Buy on H&M
-                      </Button>
-                    </Box>
-                  </Card>
+                  <ProductCard key={product.id} product={product} />
                 ))}
               </Box>
+            </Box>
+          )}
+
+          {activeView === "recommendations" && (
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: { xs: 18, md: 24 }, mb: 3 }}>
+                Recommended For You
+              </Typography>
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
+                  <CircularProgress sx={{ color: THEME.primary }} />
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "repeat(2, 1fr)",
+                      sm: "repeat(2, 1fr)",
+                      md: "repeat(3, 1fr)",
+                      lg: "repeat(4, 1fr)",
+                    },
+                    gap: { xs: 2, sm: 2.5, md: 3 },
+                  }}
+                >
+                  {recommendations.map((product) => (
+                    <ProductCard key={product.id} product={product} />
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {activeView === "history" && (
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: { xs: 18, md: 24 }, mb: 3 }}>
+                Try-On History
+              </Typography>
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
+                  <CircularProgress sx={{ color: THEME.primary }} />
+                </Box>
+              ) : history.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 5 }}>
+                  <Typography color="text.secondary" fontSize={16}>No try-on history yet</Typography>
+                  <Typography color="text.secondary" fontSize={14} mt={1}>
+                    Start trying on outfits to see your history here
+                  </Typography>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "repeat(2, 1fr)",
+                      sm: "repeat(2, 1fr)",
+                      md: "repeat(3, 1fr)",
+                      lg: "repeat(4, 1fr)",
+                    },
+                    gap: { xs: 2, sm: 2.5, md: 3 },
+                  }}
+                >
+                  {history.map((item) => {
+                    // Use result_image (try-on result), fallback to image_url, then garment_image
+                    const displayImage = item.result_image || item.image_url || item.garment_image;
+                    
+                    return (
+                      <Card key={item.id} sx={{ borderRadius: 2, overflow: 'hidden' }}>
+                        <CardMedia
+                          component="img"
+                          image={displayImage}
+                          alt={item.product_name || "Try-on result"}
+                          sx={{ 
+                            aspectRatio: "3/4",
+                            objectFit: "cover",
+                            bgcolor: "#f5f5f5"
+                          }}
+                          onError={(e) => {
+                            e.target.src = "https://via.placeholder.com/400x500/f0f0f0/666666?text=Image+Not+Found";
+                          }}
+                        />
+                        <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
+                          <Typography fontSize={{ xs: 12, md: 13 }} fontWeight={600} color="text.secondary">
+                            {new Date(item.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </Typography>
+                          {item.product_name && (
+                            <Typography fontSize={{ xs: 13, md: 14 }} fontWeight={600} noWrap mt={0.5}>
+                              {item.product_name}
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {activeView === "saved" && (
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: { xs: 18, md: 24 }, mb: 3 }}>
+                Saved Looks
+              </Typography>
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
+                  <CircularProgress sx={{ color: THEME.primary }} />
+                </Box>
+              ) : savedLooks.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 5 }}>
+                  <Typography color="text.secondary" fontSize={16}>No saved looks yet</Typography>
+                  <Typography color="text.secondary" fontSize={14} mt={1}>
+                    Save your favorite try-on results to see them here
+                  </Typography>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "repeat(2, 1fr)",
+                      sm: "repeat(2, 1fr)",
+                      md: "repeat(3, 1fr)",
+                      lg: "repeat(4, 1fr)",
+                    },
+                    gap: { xs: 2, sm: 2.5, md: 3 },
+                  }}
+                >
+                  {savedLooks.map((item) => {
+                    // Use result_image (try-on result), fallback to image_url, then garment_image
+                    const displayImage = item.result_image || item.image_url || item.garment_image;
+                    
+                    return (
+                      <Card 
+                        key={item.id} 
+                        sx={{ 
+                          borderRadius: 2, 
+                          overflow: 'hidden',
+                          position: 'relative'
+                        }}
+                      >
+                        <IconButton
+                          onClick={async () => {
+                            try {
+                              await supabase
+                                .from("tryon_history")
+                                .update({ is_saved: false })
+                                .eq("id", item.id);
+                              
+                              setSavedLooks(prev => prev.filter(look => look.id !== item.id));
+                              setSnackbar({ 
+                                open: true, 
+                                message: "Removed from saved looks", 
+                                severity: "info" 
+                              });
+                            } catch (err) {
+                              console.error("Failed to unsave:", err);
+                            }
+                          }}
+                          sx={{
+                            position: "absolute",
+                            top: 8,
+                            right: 8,
+                            zIndex: 2,
+                            width: { xs: 36, md: 40 },
+                            height: { xs: 36, md: 40 },
+                            bgcolor: "rgba(255, 255, 255, 0.95)",
+                            backdropFilter: "blur(8px)",
+                            "&:hover": {
+                              bgcolor: "white",
+                              transform: "scale(1.08)"
+                            }
+                          }}
+                        >
+                          <FavoriteIcon sx={{ color: "#e91e63", fontSize: { xs: 20, md: 24 } }} />
+                        </IconButton>
+
+                        <CardMedia
+                          component="img"
+                          image={displayImage}
+                          alt={item.product_name || "Saved look"}
+                          sx={{ 
+                            aspectRatio: "3/4",
+                            objectFit: "cover",
+                            bgcolor: "#f5f5f5"
+                          }}
+                          onError={(e) => {
+                            e.target.src = "https://via.placeholder.com/400x500/f0f0f0/666666?text=Image+Not+Found";
+                          }}
+                        />
+                        <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
+                          <Typography fontSize={{ xs: 12, md: 13 }} fontWeight={600} color="text.secondary">
+                            {new Date(item.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </Typography>
+                          {item.product_name && (
+                            <Typography fontSize={{ xs: 13, md: 14 }} fontWeight={600} noWrap mt={0.5}>
+                              {item.product_name}
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {activeView === "closet" && (
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: { xs: 18, md: 24 }, mb: 3 }}>
+                My Closet
+              </Typography>
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
+                  <CircularProgress sx={{ color: THEME.primary }} />
+                </Box>
+              ) : closetItems.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 5 }}>
+                  <Typography color="text.secondary">Your closet is empty</Typography>
+                  <Typography color="text.secondary" fontSize={14} mt={1}>
+                    Add items by clicking the heart icon on products
+                  </Typography>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "repeat(2, 1fr)",
+                      sm: "repeat(2, 1fr)",
+                      md: "repeat(3, 1fr)",
+                      lg: "repeat(4, 1fr)",
+                    },
+                    gap: { xs: 2, sm: 2.5, md: 3 },
+                  }}
+                >
+                  {closetItems.map((item) => (
+                    <Card key={item.id} sx={{ borderRadius: 2 }}>
+                      <CardMedia
+                        component="img"
+                        image={item.product_image}
+                        alt={item.product_name}
+                        sx={{ aspectRatio: "3/4", objectFit: "cover" }}
+                      />
+                      <CardContent sx={{ p: 2 }}>
+                        <Typography fontSize={14} fontWeight={600} noWrap>
+                          {item.product_name}
+                        </Typography>
+                        <Typography fontSize={17} fontWeight={800} color={THEME.primary}>
+                          {item.product_price}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Box>
+              )}
             </Box>
           )}
         </Container>

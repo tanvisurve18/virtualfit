@@ -7,6 +7,7 @@ import HistoryIcon from "@mui/icons-material/History";
 import PersonIcon from "@mui/icons-material/Person";
 import LogoutIcon from "@mui/icons-material/Logout";
 import CheckroomIcon from "@mui/icons-material/Checkroom";
+import RecommendIcon from "@mui/icons-material/Recommend";
 
 const THEME = {
   primary: "#6C5CE7",
@@ -16,7 +17,8 @@ const THEME = {
 export default function Sidebar({ userName, activeView, onViewChange }) {
   const menuItems = [
     { id: "overview", label: "Home", icon: <HomeIcon /> },
-    { id: "tryon", label: "Try On", icon: <PhotoCameraIcon /> },
+    { id: "recommendations", label: "Recommendations", icon: <RecommendIcon /> },
+    { id: "upload-tryon", label: "Upload Try On", icon: <PhotoCameraIcon /> },
     { id: "closet", label: "My Closet", icon: <CheckroomIcon /> },
     { id: "saved", label: "Saved Looks", icon: <FavoriteIcon /> },
     { id: "history", label: "History", icon: <HistoryIcon /> },
@@ -74,7 +76,7 @@ export default function Sidebar({ userName, activeView, onViewChange }) {
             button
             onClick={() => onViewChange(item.id)}
             sx={{
-              mx: 0.1,
+              mx: 1.5,
               mb: 0.5,
               borderRadius: 2,
               bgcolor: activeView === item.id ? THEME.primaryLight : "transparent",
