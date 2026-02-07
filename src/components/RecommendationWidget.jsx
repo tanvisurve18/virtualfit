@@ -50,64 +50,105 @@ export default function RecommendationWidget({
   const navigate = useNavigate();
   const [recommendations, setRecommendations] = useState([]);
   const [savedProducts, setSavedProducts] = useState(new Set());
+  const abortControllerRef = React.useRef(null);
 
   useEffect(() => {
-    loadRecommendations();
-    fetchSavedProductIds();
+    // Create abort controller for this effect
+    abortControllerRef.current = new AbortController();
+    
+    const loadData = async () => {
+      try {
+        await loadRecommendations();
+        await fetchSavedProductIds();
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error('Error loading recommendations:', err);
+        }
+      }
+    };
+    
+    loadData();
+
+    return () => {
+      // Abort any pending requests on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [type, currentProduct, savedLooks, closetItems]);
 
   async function loadRecommendations() {
     let recs = [];
 
-    switch (type) {
-      case "similar":
-        if (currentProduct) {
-          recs = getSimilarProducts(currentProduct, count);
-        }
-        break;
-
-      case "closet-based":
-        recs = getClosetBasedRecommendations(savedLooks, closetItems, count);
-        break;
-
-      case "history-based":
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            const { data: history } = await supabase
-              .from("tryon_history")
-              .select("*")
-              .eq("user_id", user.id)
-              .limit(20);
-            recs = getHistoryBasedRecommendations(history || [], count);
+    try {
+      switch (type) {
+        case "similar":
+          if (currentProduct) {
+            recs = getSimilarProducts(currentProduct, count);
           }
-        } catch (err) {
-          console.error("Failed to load history:", err);
-        }
-        break;
+          break;
 
-      default:
-        break;
+        case "closet-based":
+          recs = getClosetBasedRecommendations(savedLooks, closetItems, count);
+          break;
+
+        case "history-based":
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user && abortControllerRef.current) {
+              const { data: history } = await supabase
+                .from("tryon_history")
+                .select("*")
+                .eq("user_id", user.id)
+                .limit(20);
+              
+              // Check if request was aborted
+              if (abortControllerRef.current.signal.aborted) return;
+              
+              recs = getHistoryBasedRecommendations(history || [], count);
+            }
+          } catch (err) {
+            if (err.name !== 'AbortError') {
+              console.error("Failed to load history:", err);
+            }
+            return;
+          }
+          break;
+
+        default:
+          break;
+      }
+
+      if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
+        setRecommendations(recs);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Error in loadRecommendations:', err);
+      }
     }
-
-    setRecommendations(recs);
   }
 
   async function fetchSavedProductIds() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || !abortControllerRef.current) return;
 
       const { data } = await supabase
         .from("closet_items")
         .select("product_id")
         .eq("user_id", user.id);
 
+      // Check if request was aborted
+      if (abortControllerRef.current.signal.aborted) return;
+      
       if (data) {
         setSavedProducts(new Set(data.map(r => String(r.product_id))));
       }
     } catch (err) {
-      console.error("fetchSavedProductIds:", err);
+      if (err.name !== 'AbortError') {
+        console.error("fetchSavedProductIds:", err);
+      }
     }
   }
 

@@ -249,8 +249,17 @@ export default function Dashboard() {
   }
 
   function handleTryOn(product) {
+    console.log("Try On clicked for product:", product);
+    console.log("Navigating to /live-tryon with state:", {
+      garment_image: product.image,
+      product_name: product.title,
+      product_price: product.price,
+      product_url: product.product_url,
+      product_id: product.id
+    });
+    
     // Navigate to live try-on page with selected product
-    navigate("/live-tryon", {
+    navigate("/tryon", {
       state: {
         garment_image: product.image,
         product_name: product.title,
@@ -662,21 +671,22 @@ export default function Dashboard() {
                   }}
                 >
                   {history.map((item) => {
-                    // Use result_image (try-on result), fallback to image_url, then garment_image
-                    const displayImage = item.result_image || item.image_url || item.garment_image;
+                    // image_data contains the captured try-on result!
+                    const displayImage = item.image_data || item.image_url || item.product_image;
                     
                     return (
                       <Card key={item.id} sx={{ borderRadius: 2, overflow: 'hidden' }}>
                         <CardMedia
                           component="img"
                           image={displayImage}
-                          alt={item.product_name || "Try-on result"}
+                          alt={item.item_id || item.product_name || "Try-on result"}
                           sx={{ 
                             aspectRatio: "3/4",
                             objectFit: "cover",
                             bgcolor: "#f5f5f5"
                           }}
                           onError={(e) => {
+                            console.error("Image failed to load:", displayImage);
                             e.target.src = "https://via.placeholder.com/400x500/f0f0f0/666666?text=Image+Not+Found";
                           }}
                         />
@@ -688,9 +698,9 @@ export default function Dashboard() {
                               year: 'numeric'
                             })}
                           </Typography>
-                          {item.product_name && (
+                          {(item.item_id || item.product_name) && (
                             <Typography fontSize={{ xs: 13, md: 14 }} fontWeight={600} noWrap mt={0.5}>
-                              {item.product_name}
+                              {item.item_id || item.product_name}
                             </Typography>
                           )}
                         </CardContent>
@@ -732,8 +742,8 @@ export default function Dashboard() {
                   }}
                 >
                   {savedLooks.map((item) => {
-                    // Use result_image (try-on result), fallback to image_url, then garment_image
-                    const displayImage = item.result_image || item.image_url || item.garment_image;
+                    // image_data contains the captured try-on result!
+                    const displayImage = item.image_data || item.image_url || item.product_image;
                     
                     return (
                       <Card 
@@ -783,13 +793,14 @@ export default function Dashboard() {
                         <CardMedia
                           component="img"
                           image={displayImage}
-                          alt={item.product_name || "Saved look"}
+                          alt={item.item_id || item.product_name || "Saved look"}
                           sx={{ 
                             aspectRatio: "3/4",
                             objectFit: "cover",
                             bgcolor: "#f5f5f5"
                           }}
                           onError={(e) => {
+                            console.error("Image failed to load:", displayImage);
                             e.target.src = "https://via.placeholder.com/400x500/f0f0f0/666666?text=Image+Not+Found";
                           }}
                         />
@@ -801,9 +812,9 @@ export default function Dashboard() {
                               year: 'numeric'
                             })}
                           </Typography>
-                          {item.product_name && (
+                          {(item.item_id || item.product_name) && (
                             <Typography fontSize={{ xs: 13, md: 14 }} fontWeight={600} noWrap mt={0.5}>
-                              {item.product_name}
+                              {item.item_id || item.product_name}
                             </Typography>
                           )}
                         </CardContent>
