@@ -30,9 +30,7 @@ export default function UploadTryOn() {
   const landmarksRef = useRef(null);
   const productImgRef = useRef(null);
   const uploadedImageRef = useRef(null);
-  
   const navigate = useNavigate();
-
   const [activeStep, setActiveStep] = useState(0);
   const [uploadedImage, setUploadedImage] = useState(null);
   const [uploadedFile, setUploadedFile] = useState(null);

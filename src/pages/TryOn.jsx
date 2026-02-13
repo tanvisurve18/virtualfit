@@ -34,8 +34,9 @@ export default function TryOn() {
   const landmarksRef = useRef(null);
   const productImgRef = useRef(null);
   const isDrawingRef = useRef(false);
-  const frameCountRef = useRef(0); // For frame skipping
-  const lastPoseUpdateRef = useRef(0); // For throttling pose analysis
+  const frameCountRef = useRef(0);
+  const lastPoseUpdateRef = useRef(0);
+  const imageLoadedRef = useRef(false);
 
   const { state } = useLocation();
   const navigate = useNavigate();
@@ -47,19 +48,18 @@ export default function TryOn() {
   const [savingLook, setSavingLook] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
   const [showSettings, setShowSettings] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
   
-  // FIXED: Changed default garment scale to 1.0 (more intuitive - higher = bigger)
   const [garmentScale, setGarmentScale] = useState(1.0);
   const [garmentVerticalOffset, setGarmentVerticalOffset] = useState(0);
   const [garmentHorizontalOffset, setGarmentHorizontalOffset] = useState(0);
   const [currentProduct, setCurrentProduct] = useState(null);
 
-  // Pose guidance states
   const [shouldersVisible, setShouldersVisible] = useState(false);
   const [isStandingStraight, setIsStandingStraight] = useState(false);
   const [distanceGood, setDistanceGood] = useState(false);
 
-  // Extract product data from state - handle multiple field name variations
+  // Extract product data from state
   const productData = state ? {
     image: state.garment_image || state.image,
     name: state.product_name || state.name || state.title,
@@ -81,18 +81,56 @@ export default function TryOn() {
     );
   }
 
+  // FIXED: Improved image loading with better CORS handling and retry logic
   useEffect(() => {
-    if (!productData.image) return;
+    if (!productData.image) {
+      console.error("[OVERLAY] ❌ No product image URL provided");
+      setImageLoading(false);
+      return;
+    }
+    
+    console.log("[OVERLAY] 📥 Loading product image:", productData.image);
+    setImageLoading(true);
+    imageLoadedRef.current = false;
     
     const img = new Image();
+    
+    // Try with crossOrigin first
     img.crossOrigin = "anonymous";
+    
     img.onload = () => {
+      console.log("[OVERLAY] ✅ Product image loaded successfully:", img.width, "x", img.height);
       productImgRef.current = img;
+      imageLoadedRef.current = true;
+      setImageLoading(false);
     };
+    
     img.onerror = (e) => {
-      console.error("Failed to load product image:", productData.image, e);
-      productImgRef.current = img;
+      console.warn("[OVERLAY] ⚠️ Failed to load with CORS, retrying without...", e);
+      
+      // Retry without crossOrigin for images that don't support CORS
+      const img2 = new Image();
+      
+      img2.onload = () => {
+        console.log("[OVERLAY] ✅ Product image loaded (no CORS):", img2.width, "x", img2.height);
+        productImgRef.current = img2;
+        imageLoadedRef.current = true;
+        setImageLoading(false);
+      };
+      
+      img2.onerror = (e2) => {
+        console.error("[OVERLAY] ❌ Failed to load product image completely:", e2);
+        setImageLoading(false);
+        setSnackbar({ 
+          open: true, 
+          message: "Failed to load product image. Try a different product.", 
+          severity: "error" 
+        });
+      };
+      
+      img2.src = productData.image;
     };
+    
     img.src = productData.image;
     
     // Set current product for recommendations
@@ -103,6 +141,14 @@ export default function TryOn() {
       image: productData.image,
       url: productData.link
     });
+    
+    return () => {
+      if (productImgRef.current) {
+        productImgRef.current.src = '';
+        productImgRef.current = null;
+      }
+      imageLoadedRef.current = false;
+    };
   }, [productData]);
 
   useEffect(() => {
@@ -110,19 +156,18 @@ export default function TryOn() {
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
     });
     pose.setOptions({ 
-      modelComplexity: 0, // Lowest complexity for best performance
+      modelComplexity: 0,
       smoothLandmarks: true, 
       enableSegmentation: false,
-      minDetectionConfidence: 0.3, // Further reduced for faster detection
-      minTrackingConfidence: 0.2   // Further reduced for smoother tracking
+      minDetectionConfidence: 0.3,
+      minTrackingConfidence: 0.2
     });
     pose.onResults((results) => {
-      if (!isDrawingRef.current) return; // Don't process if camera is off
+      if (!isDrawingRef.current) return;
       
       landmarksRef.current = results.poseLandmarks;
       const detected = !!results.poseLandmarks;
       
-      // Throttle pose quality analysis - only update every 100ms for better responsiveness
       const now = Date.now();
       if (now - lastPoseUpdateRef.current > 100) {
         lastPoseUpdateRef.current = now;
@@ -143,7 +188,7 @@ export default function TryOn() {
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
       isDrawingRef.current = false;
-      ctxRef.current = null; // Clear cached context
+      ctxRef.current = null;
     };
   }, []);
 
@@ -151,11 +196,11 @@ export default function TryOn() {
     const leftShoulder = landmarks[11];
     const rightShoulder = landmarks[12];
     
-    // Lowered visibility threshold from 0.65 to 0.4 for better detection
+    // FIXED: Lowered visibility threshold to 0.3 for better detection
     const shouldersVisibleCheck = 
       leftShoulder && rightShoulder && 
-      leftShoulder.visibility > 0.4 && 
-      rightShoulder.visibility > 0.4;
+      leftShoulder.visibility > 0.3 && 
+      rightShoulder.visibility > 0.3;
     setShouldersVisible(shouldersVisibleCheck);
     
     if (leftShoulder && rightShoulder) {
@@ -164,7 +209,7 @@ export default function TryOn() {
       setIsStandingStraight(straightCheck);
       
       const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
-      const distanceCheck = shoulderWidth > 0.2 && shoulderWidth < 0.5;
+      const distanceCheck = shoulderWidth > 0.15 && shoulderWidth < 0.6;
       setDistanceGood(distanceCheck);
     }
   };
@@ -175,23 +220,22 @@ export default function TryOn() {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: "user", 
-          width: { ideal: 640 },   // Reduced for better performance
-          height: { ideal: 480 },  // Reduced for better performance
-          frameRate: { ideal: 24 } // Further reduced to 24 FPS
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 24 }
         } 
       });
       
-      console.log("Camera stream acquired:", stream);
+      console.log("[CAMERA] ✅ Camera stream acquired");
       streamRef.current = stream;
       const video = videoRef.current;
       if (!video) throw new Error("Video element not found");
       
       video.srcObject = stream;
       
-      // Wait for video to be ready
       await new Promise((resolve, reject) => {
         const onLoadedMetadata = () => {
-          console.log("Video metadata loaded:", video.videoWidth, "x", video.videoHeight);
+          console.log("[CAMERA] ✅ Video metadata loaded:", video.videoWidth, "x", video.videoHeight);
           video.removeEventListener("loadedmetadata", onLoadedMetadata);
           resolve();
         };
@@ -207,16 +251,15 @@ export default function TryOn() {
       });
       
       await video.play();
-      console.log("Video playback started");
+      console.log("[CAMERA] ✅ Video playback started");
       
       isDrawingRef.current = true;
       setCameraOn(true);
       setLoading(false);
       
-      // Start the draw loop
       drawLoop();
     } catch (err) {
-      console.error("Camera error:", err);
+      console.error("[CAMERA] ❌ Camera error:", err);
       setLoading(false);
       setSnackbar({ open: true, message: err.message || "Camera access denied", severity: "error" });
     }
@@ -224,7 +267,9 @@ export default function TryOn() {
 
   const drawLoop = () => {
     if (!videoRef.current || !canvasRef.current || !isDrawingRef.current) {
-      animationRef.current = requestAnimationFrame(drawLoop);
+      if (isDrawingRef.current) {
+        animationRef.current = requestAnimationFrame(drawLoop);
+      }
       return;
     }
     
@@ -234,7 +279,7 @@ export default function TryOn() {
     // Get cached context or create new one
     let ctx = ctxRef.current;
     if (!ctx) {
-      ctx = canvas.getContext("2d");
+      ctx = canvas.getContext("2d", { willReadFrequently: false });
       ctxRef.current = ctx;
     }
     
@@ -244,13 +289,15 @@ export default function TryOn() {
       if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        console.log("[CANVAS] 📐 Canvas resized to:", canvas.width, "x", canvas.height);
       }
       
-      // Frame skipping - send to pose detection every 2 frames for better responsiveness
+      // Frame skipping - send to pose detection every 2 frames
       frameCountRef.current++;
       if (frameCountRef.current % 2 === 0 && poseRef.current) {
-        // Don't await - just send the frame
-        poseRef.current.send({ image: video });
+        poseRef.current.send({ image: video }).catch(err => {
+          console.warn("[POSE] ⚠️ Pose detection error:", err);
+        });
       }
       
       // Clear canvas and draw video with horizontal flip (mirror for selfie view)
@@ -260,55 +307,37 @@ export default function TryOn() {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       ctx.restore();
 
-      // Draw garment overlay on top if landmarks and image exist
-      if (productImgRef.current && productImgRef.current.width && productImgRef.current.height) {
+      // FIXED: Draw garment overlay on top if image is loaded and landmarks exist
+      if (imageLoadedRef.current && productImgRef.current) {
         if (landmarksRef.current) {
           drawGarmentOverlay(ctx, canvas);
         }
-      } else if (productImgRef.current) {
-        console.log("Image not ready yet:", productImgRef.current.width, productImgRef.current.height);
       }
     }
     
-    // Continue animation loop
     animationRef.current = requestAnimationFrame(drawLoop);
   };
 
+  // FIXED: Improved garment overlay rendering
   const drawGarmentOverlay = (ctx, canvas) => {
     const lm = landmarksRef.current;
-    if (!lm || lm.length === 0) {
-      console.log("[CLOTH] No landmarks");
-      return;
-    }
+    if (!lm || lm.length === 0) return;
     
     const img = productImgRef.current;
-    if (!img) {
-      console.log("[CLOTH] No image reference");
-      return;
-    }
-    
-    if (!img.width || !img.height) {
-      console.log("[CLOTH] Image not loaded:", img.width, "x", img.height);
+    if (!img || !img.complete || !img.width || !img.height) {
       return;
     }
     
     const leftShoulder = lm[11];
     const rightShoulder = lm[12];
     
-    if (!leftShoulder || !rightShoulder) {
-      console.log("[CLOTH] No shoulders in landmarks");
+    if (!leftShoulder || !rightShoulder) return;
+    
+    // FIXED: Lowered threshold to 0.2 for better detection
+    if (leftShoulder.visibility < 0.2 || rightShoulder.visibility < 0.2) {
       return;
     }
     
-    console.log("[CLOTH] Drawing with visibility:", leftShoulder.visibility, rightShoulder.visibility);
-    
-    // Lowered visibility threshold from 0.5 to 0.3 for better detection
-    if (leftShoulder.visibility < 0.3 || rightShoulder.visibility < 0.3) {
-      console.log("[CLOTH] Shoulders not visible enough");
-      return;
-    }
-    
-    console.log("[CLOTH] Rendering now");
     const nose = lm[0];
     const leftElbow = lm[13], rightElbow = lm[14];
     const leftWrist = lm[15], rightWrist = lm[16];
@@ -326,17 +355,17 @@ export default function TryOn() {
     // Calculate shoulder width
     const shoulderWidth = Math.abs(lShoulderX - rShoulderX);
     
-    // Calculate body width
+    // Calculate body width considering elbows and wrists
     let bodyWidth = shoulderWidth;
     
-    if (leftElbow && rightElbow && leftElbow.visibility > 0.5 && rightElbow.visibility > 0.5) {
+    if (leftElbow && rightElbow && leftElbow.visibility > 0.2 && rightElbow.visibility > 0.2) {
       const lElbowX = mirrorX(leftElbow.x);
       const rElbowX = mirrorX(rightElbow.x);
       const elbowSpan = Math.abs(lElbowX - rElbowX);
       bodyWidth = Math.max(bodyWidth, elbowSpan * 0.8);
     }
     
-    if (leftWrist && rightWrist && leftWrist.visibility > 0.5 && rightWrist.visibility > 0.5) {
+    if (leftWrist && rightWrist && leftWrist.visibility > 0.2 && rightWrist.visibility > 0.2) {
       const lWristX = mirrorX(leftWrist.x);
       const rWristX = mirrorX(rightWrist.x);
       const lWristY = leftWrist.y * canvas.height;
@@ -350,7 +379,7 @@ export default function TryOn() {
     
     // Calculate neck position
     let neckY = shoulderCenterY;
-    if (nose && nose.visibility > 0.5) {
+    if (nose && nose.visibility > 0.2) {
       const noseY = nose.y * canvas.height;
       neckY = noseY + (shoulderCenterY - noseY) * 0.65;
     } else {
@@ -359,7 +388,7 @@ export default function TryOn() {
     
     // Calculate torso length
     let torsoLength = bodyWidth * 1.6;
-    if (leftHip && rightHip && leftHip.visibility > 0.5 && rightHip.visibility > 0.5) {
+    if (leftHip && rightHip && leftHip.visibility > 0.2 && rightHip.visibility > 0.2) {
       const hipY = ((leftHip.y + rightHip.y) / 2) * canvas.height;
       torsoLength = Math.abs(hipY - neckY) * 1.15;
     } else {
@@ -367,48 +396,60 @@ export default function TryOn() {
       torsoLength = neckToShoulder * 4.2;
     }
     
-    // Dynamic depth scaling
+    // FIXED: Improved depth scaling - adjusts garment size based on distance
     const shoulderRatio = shoulderWidth / canvas.width;
     let sizeAdjustment = 1.0;
+    
+    // When user is far (small shoulder ratio), make garment bigger
     if (shoulderRatio < 0.25) {
-      sizeAdjustment = 1.0 + (0.25 - shoulderRatio) * 2;
-    } else if (shoulderRatio > 0.35) {
-      sizeAdjustment = 1.0 - (shoulderRatio - 0.35) * 1.5;
+      sizeAdjustment = 1.0 + (0.25 - shoulderRatio) * 2.5; // Increased multiplier
+    } 
+    // When user is close (large shoulder ratio), make garment smaller
+    else if (shoulderRatio > 0.35) {
+      sizeAdjustment = 1.0 - (shoulderRatio - 0.35) * 1.8; // Increased multiplier
     }
-    sizeAdjustment = Math.max(0.6, Math.min(1.4, sizeAdjustment));
+    
+    // Clamp to reasonable range
+    sizeAdjustment = Math.max(0.5, Math.min(1.8, sizeAdjustment));
     
     // Calculate final dimensions
     const baseWidth = bodyWidth * 2.6 * garmentScale * sizeAdjustment;
-    const imgAspectRatio = productImgRef.current.width / productImgRef.current.height;
+    const imgAspectRatio = img.width / img.height;
     const heightFromAspect = baseWidth / imgAspectRatio;
     const heightFromTorso = torsoLength * 1.3;
     const baseHeight = Math.max(heightFromAspect, heightFromTorso);
     
-    // Position
+    // Position with offsets
     const garmentX = shoulderCenterX + garmentHorizontalOffset;
     const garmentY = neckY + garmentVerticalOffset;
     
-    console.log("[CLOTH] Drawing params:", {
-      canvasSize: canvas.width + "x" + canvas.height,
-      imgSize: img.width + "x" + img.height,
-      baseWidth: baseWidth.toFixed(0),
-      baseHeight: baseHeight.toFixed(0),
-      garmentX: garmentX.toFixed(0),
-      garmentY: garmentY.toFixed(0),
-      drawX: (garmentX - baseWidth / 2).toFixed(0)
-    });
-    
-    // Draw with transparency
+    // FIXED: Draw with better error handling and alpha blending
+    ctx.save();
     ctx.globalAlpha = 0.92;
-    ctx.drawImage(
-      productImgRef.current,
-      garmentX - baseWidth / 2,
-      garmentY,
-      baseWidth,
-      baseHeight
-    );
-    ctx.globalAlpha = 1.0;
-    console.log("[CLOTH] Draw complete");
+    
+    try {
+      ctx.drawImage(
+        img,
+        garmentX - baseWidth / 2,
+        garmentY,
+        baseWidth,
+        baseHeight
+      );
+      
+      // Debug: Draw occasionally to confirm rendering
+      if (frameCountRef.current % 60 === 0) {
+        console.log("[CLOTH] ✅ Rendering overlay at:", 
+          Math.round(garmentX - baseWidth / 2), 
+          Math.round(garmentY), 
+          Math.round(baseWidth), 
+          Math.round(baseHeight)
+        );
+      }
+    } catch (e) {
+      console.error("[CLOTH] ❌ Draw error:", e);
+    }
+    
+    ctx.restore();
   };
 
   const captureImage = () => {
@@ -418,20 +459,19 @@ export default function TryOn() {
     try {
       const image = canvas.toDataURL("image/png");
       setCapturedImage(image);
+      
+      // Stop camera and drawing loop
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+      setCameraOn(false);
+      isDrawingRef.current = false;
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
     } catch (err) {
-      console.error("Failed to capture image:", err);
+      console.error("[CAPTURE] ❌ Failed to capture image:", err);
       setSnackbar({ open: true, message: "Failed to capture image", severity: "error" });
-      return;
-    }
-    
-    // Stop camera and drawing loop
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-    }
-    setCameraOn(false);
-    isDrawingRef.current = false;
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
     }
   };
 
@@ -445,175 +485,208 @@ export default function TryOn() {
         setSavingLook(false);
         return;
       }
-      
-      const { data: inserted, error: insertError } = await supabase
-        .from("tryon_history")
+
+      const base64Data = capturedImage.split(',')[1];
+      const fileName = `look_${Date.now()}.png`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('looks')
+        .upload(`${user.id}/${fileName}`, Buffer.from(base64Data, 'base64'), {
+          contentType: 'image/png'
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('looks')
+        .getPublicUrl(`${user.id}/${fileName}`);
+
+      const { error: dbError } = await supabase
+        .from('saved_looks')
         .insert({
           user_id: user.id,
+          image_url: publicUrlData.publicUrl,
+          product_id: productData.productId,
           product_name: productData.name,
           product_image: productData.image,
           product_price: productData.price,
-          product_url: productData.link,
-          tryon_image: capturedImage
-        })
-        .select();
+          product_url: productData.link
+        });
 
-      if (insertError) throw insertError;
-      
-      setSnackbar({ open: true, message: "Look saved to your closet! 💖", severity: "success" });
-    } catch (error) {
-      console.error("Save error:", error);
+      if (dbError) throw dbError;
+
+      setSnackbar({ open: true, message: "Look saved successfully! 💖", severity: "success" });
+    } catch (err) {
+      console.error("Save error:", err);
       setSnackbar({ open: true, message: "Failed to save look", severity: "error" });
     } finally {
       setSavingLook(false);
     }
   };
 
-  // Determine guidance message based on pose quality
-  const guidance = (() => {
-    if (!cameraOn || capturedImage) return null;
+  const guidance = React.useMemo(() => {
+    if (!cameraOn || capturedImage || !poseDetected) return null;
     
-    if (!poseDetected) {
+    if (shouldersVisible && isStandingStraight && distanceGood) {
       return {
-        text: "Move into frame",
-        icon: <VisibilityIcon sx={{ fontSize: 20 }} />,
-        color: "error"
+        text: "Perfect! You're all set 🎯",
+        color: "success",
+        icon: <CheckCircleIcon fontSize="small" />
       };
     }
     
     if (!shouldersVisible) {
       return {
-        text: "Show both shoulders",
-        icon: <WarningIcon sx={{ fontSize: 20 }} />,
-        color: "warning"
+        text: "Show both shoulders in frame",
+        color: "warning",
+        icon: <VisibilityIcon fontSize="small" />
       };
     }
     
     if (!isStandingStraight) {
       return {
-        text: "Stand straight",
-        icon: <StraightenIcon sx={{ fontSize: 20 }} />,
-        color: "warning"
+        text: "Stand straight with level shoulders",
+        color: "warning",
+        icon: <WarningIcon fontSize="small" />
       };
     }
     
     if (!distanceGood) {
       return {
-        text: "Adjust distance (3-4 feet)",
-        icon: <WarningIcon sx={{ fontSize: 20 }} />,
-        color: "warning"
+        text: "Move closer or farther from camera",
+        color: "warning",
+        icon: <StraightenIcon fontSize="small" />
       };
     }
     
-    return {
-      text: "Perfect! Ready to capture",
-      icon: <CheckCircleIcon sx={{ fontSize: 20 }} />,
-      color: "success"
-    };
-  })();
+    return null;
+  }, [cameraOn, capturedImage, poseDetected, shouldersVisible, isStandingStraight, distanceGood]);
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: THEME.pageBg, pb: 6 }}>
       {/* Header */}
-      <Box 
-        sx={{ 
-          background: THEME.gradient, 
-          color: "white", 
-          py: 3, 
-          px: 3,
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
-        }}
-      >
+      <Box sx={{ 
+        background: THEME.gradient, 
+        color: "white", 
+        p: 2, 
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "space-between",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+      }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <IconButton onClick={() => navigate(-1)} sx={{ color: "white" }}>
+          <IconButton onClick={() => navigate("/dashboard")} sx={{ color: "white" }}>
             <ArrowBackIcon />
           </IconButton>
-          <Typography variant="h5" fontWeight={700}>Virtual Try-On</Typography>
+          <Typography variant="h6" fontWeight={700}>Virtual Try-On</Typography>
         </Box>
+        <IconButton onClick={() => setShowSettings(!showSettings)} sx={{ color: "white" }}>
+          <TuneIcon />
+        </IconButton>
       </Box>
 
-      <Box sx={{ maxWidth: 1200, mx: "auto", px: 3, mt: 4 }}>
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 400px" }, gap: 3 }}>
-          {/* Product Info Card */}
+      <Box sx={{ maxWidth: 1200, mx: "auto", px: 3, mt: 3 }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "320px 1fr" }, gap: 3 }}>
+          
+          {/* Product Info Sidebar */}
           <Box>
-            <Card elevation={3} sx={{ mb: 3, borderRadius: 3 }}>
-              <Box sx={{ p: 3, display: "flex", gap: 3, alignItems: "center" }}>
-                <Box 
+            <Card elevation={2} sx={{ borderRadius: 3, overflow: "hidden" }}>
+              <CardMedia
+                component="img"
+                image={productData.image}
+                alt={productData.name}
+                sx={{ height: 300, objectFit: "cover", bgcolor: "#f5f5f5" }}
+                onError={(e) => {
+                  console.error("[PRODUCT_IMAGE] ❌ Failed to load product card image");
+                  e.target.style.display = 'none';
+                }}
+              />
+              <CardContent>
+                <Typography variant="h6" fontWeight={700} gutterBottom>
+                  {productData.name}
+                </Typography>
+                <Typography variant="h5" fontWeight={800} color="primary" gutterBottom>
+                  {productData.price}
+                </Typography>
+                <Button 
+                  variant="contained" 
+                  fullWidth 
+                  startIcon={<ShoppingBagIcon />}
+                  href={productData.link}
+                  target="_blank"
                   sx={{ 
-                    width: 120, 
-                    height: 120, 
-                    borderRadius: 2, 
-                    overflow: "hidden",
-                    bgcolor: "#f5f5f5",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
+                    mt: 2, 
+                    bgcolor: THEME.primary, 
+                    fontWeight: 600,
+                    "&:hover": { bgcolor: "#5B4CD6" }
                   }}
                 >
-                  <CardMedia 
-                    component="img" 
-                    image={productData.image} 
-                    alt={productData.name}
-                    sx={{ width: "100%", height: "100%", objectFit: "contain" }}
-                  />
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <Chip label="Try On" size="small" sx={{ mb: 1, bgcolor: THEME.primary, color: "white", fontWeight: 600 }} icon={<ShoppingBagIcon sx={{ color: "white !important" }} />} />
-                  <Typography variant="h6" fontWeight={600} gutterBottom>{productData.name}</Typography>
-                  <Typography variant="h5" fontWeight={700} color={THEME.primary} gutterBottom>₹{productData.price}</Typography>
-                  {productData.link && (
-                    <Button 
-                      variant="outlined" 
-                      size="small" 
-                      href={productData.link} 
-                      target="_blank"
-                      sx={{ mt: 1, fontWeight: 600 }}
-                    >
-                      Buy on H&M
-                    </Button>
-                  )}
-                </Box>
-              </Box>
+                  Buy on H&M
+                </Button>
+              </CardContent>
             </Card>
 
-            {/* Adjustment Settings */}
-            <Button 
-              variant="outlined" 
-              size="small" 
-              startIcon={<TuneIcon />}
-              onClick={() => setShowSettings(!showSettings)}
-              sx={{ mb: 2, fontWeight: 600 }}
-            >
-              {showSettings ? "Hide" : "Show"} Fit Adjustments
-            </Button>
-
+            {/* Adjustment Controls */}
             {showSettings && (
-              <Paper elevation={2} sx={{ p: 3, mb: 3, borderRadius: 2 }}>
-                <Typography variant="subtitle2" fontWeight={600} gutterBottom>Adjust Garment Fit</Typography>
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="caption">Size: {garmentScale.toFixed(1)}x</Typography>
-                  <Slider 
-                    value={garmentScale} 
-                    onChange={(e, v) => setGarmentScale(v)} 
-                    min={0.5} 
-                    max={1.5} 
-                    step={0.05} 
-                    sx={{ color: THEME.primary }} 
-                  />
+              <Fade in={showSettings}>
+                <Card elevation={2} sx={{ borderRadius: 3, mt: 2, p: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                    Garment Adjustments
+                  </Typography>
+                  
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="caption" gutterBottom>
+                      Size: {garmentScale.toFixed(1)}x
+                    </Typography>
+                    <Slider
+                      value={garmentScale}
+                      onChange={(e, v) => setGarmentScale(v)}
+                      min={0.5}
+                      max={1.5}
+                      step={0.1}
+                      marks
+                      size="small"
+                    />
+                  </Box>
+
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="caption" gutterBottom>
+                      Vertical Position: {garmentVerticalOffset}px
+                    </Typography>
+                    <Slider
+                      value={garmentVerticalOffset}
+                      onChange={(e, v) => setGarmentVerticalOffset(v)}
+                      min={-100}
+                      max={100}
+                      step={5}
+                      size="small"
+                    />
+                  </Box>
+
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="caption" gutterBottom>
+                      Horizontal Position: {garmentHorizontalOffset}px
+                    </Typography>
+                    <Slider
+                      value={garmentHorizontalOffset}
+                      onChange={(e, v) => setGarmentHorizontalOffset(v)}
+                      min={-100}
+                      max={100}
+                      step={5}
+                      size="small"
+                    />
+                  </Box>
+                </Card>
+              </Fade>
+            )}
+
+            {/* Image Loading Status */}
+            {imageLoading && (
+              <Card elevation={2} sx={{ borderRadius: 3, mt: 2, p: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <CircularProgress size={20} />
+                  <Typography variant="caption">Loading product image...</Typography>
                 </Box>
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="caption">Vertical Position: {garmentVerticalOffset}px</Typography>
-                  <Slider value={garmentVerticalOffset} onChange={(e, v) => setGarmentVerticalOffset(v)} min={-50} max={50} step={2} sx={{ color: THEME.primary }} />
-                </Box>
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="caption">Horizontal Position: {garmentHorizontalOffset}px</Typography>
-                  <Slider value={garmentHorizontalOffset} onChange={(e, v) => setGarmentHorizontalOffset(v)} min={-60} max={60} step={2} sx={{ color: THEME.primary }} />
-                </Box>
-                <Button fullWidth size="small" onClick={() => { setGarmentScale(1.0); setGarmentVerticalOffset(0); setGarmentHorizontalOffset(0); }} sx={{ mt: 2 }}>Reset to Default</Button>
-              </Paper>
+              </Card>
             )}
           </Box>
 
@@ -663,10 +736,10 @@ export default function TryOn() {
                       size="large" 
                       startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CameraAltIcon />}
                       onClick={startCamera} 
-                      disabled={loading} 
+                      disabled={loading || imageLoading} 
                       sx={{ bgcolor: THEME.primary, px: 4, py: 1.5, fontWeight: 600 }}
                     >
-                      {loading ? "Starting..." : "Start"}
+                      {loading ? "Starting..." : imageLoading ? "Loading Image..." : "Start"}
                     </Button>
                   </Box>
                 )}
