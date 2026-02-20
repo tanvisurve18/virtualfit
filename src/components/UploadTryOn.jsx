@@ -24,6 +24,10 @@ const THEME = {
 
 const steps = ['Upload Photo', 'Select Cloth', 'Try On'];
 
+// ⚙️ BACKEND CONFIGURATION
+// Your FastAPI server running on port 8000
+const BACKEND_URL = "http://localhost:8000";
+
 export default function UploadTryOn() {
   const canvasRef = useRef(null);
   const poseRef = useRef(null);
@@ -31,6 +35,7 @@ export default function UploadTryOn() {
   const productImgRef = useRef(null);
   const uploadedImageRef = useRef(null);
   const navigate = useNavigate();
+  
   const [activeStep, setActiveStep] = useState(0);
   const [uploadedImage, setUploadedImage] = useState(null);
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -45,6 +50,9 @@ export default function UploadTryOn() {
   const [garmentVerticalOffset, setGarmentVerticalOffset] = useState(0);
   const [garmentHorizontalOffset, setGarmentHorizontalOffset] = useState(0);
   const [products, setProducts] = useState([]);
+  
+  // NEW: Backend status state
+  const [backendStatus, setBackendStatus] = useState("checking");
 
   useEffect(() => {
     // Load all products
@@ -56,6 +64,9 @@ export default function UploadTryOn() {
       product_url: item.url,
     }));
     setProducts(allProducts);
+    
+    // Check backend health
+    checkBackendHealth();
   }, []);
 
   useEffect(() => {
@@ -66,8 +77,8 @@ export default function UploadTryOn() {
       modelComplexity: 1, 
       smoothLandmarks: true, 
       enableSegmentation: false,
-      minDetectionConfidence: 0.7, 
-      minTrackingConfidence: 0.7
+      minDetectionConfidence: 0.5, 
+      minTrackingConfidence: 0.5
     });
     pose.onResults((results) => {
       landmarksRef.current = results.poseLandmarks;
@@ -79,6 +90,38 @@ export default function UploadTryOn() {
       if (poseRef.current) poseRef.current.close();
     };
   }, []);
+
+  // NEW: Check backend health
+  const checkBackendHealth = async () => {
+    try {
+      console.log("🔍 Checking backend health...");
+      const response = await fetch(`${BACKEND_URL}/health`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("✅ Backend online:", data);
+        setBackendStatus("online");
+        setSnackbar({ 
+          open: true, 
+          message: `✅ Backend connected! Ready for AI try-on.`, 
+          severity: "success" 
+        });
+      } else {
+        throw new Error("Backend not responding");
+      }
+    } catch (err) {
+      console.error("❌ Backend offline:", err);
+      setBackendStatus("offline");
+      setSnackbar({ 
+        open: true, 
+        message: "⚠️ Backend offline! Make sure Python server is running.", 
+        severity: "warning" 
+      });
+    }
+  };
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -94,7 +137,7 @@ export default function UploadTryOn() {
           setActiveStep(1);
           setSnackbar({ 
             open: true, 
-            message: "Photo uploaded successfully! Now select a cloth.", 
+            message: "Photo uploaded! Now select clothing.", 
             severity: "success" 
           });
         };
@@ -105,126 +148,101 @@ export default function UploadTryOn() {
 
   const handleProductSelect = (product) => {
     setSelectedProduct(product);
+    
+    // Load product image
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = product.image;
+    img.onerror = () => {
+      const imgFallback = new Image();
+      imgFallback.src = product.image;
+      imgFallback.onload = () => {
+        productImgRef.current = imgFallback;
+        setActiveStep(2);
+        setSnackbar({ 
+          open: true, 
+          message: "Clothing selected! Ready to generate try-on.", 
+          severity: "success" 
+        });
+      };
+    };
     img.onload = () => {
       productImgRef.current = img;
       setActiveStep(2);
       setSnackbar({ 
         open: true, 
-        message: "Cloth selected! Click 'Generate Try-On' to see the result.", 
+        message: "Clothing selected! Ready to generate try-on.", 
         severity: "success" 
       });
     };
+    img.src = product.image;
   };
 
+  // UPDATED: Generate try-on using backend API
   const generateTryOn = async () => {
-    if (!uploadedImageRef.current || !productImgRef.current) {
+    if (!uploadedFile || !selectedProduct) {
       setSnackbar({ open: true, message: "Missing image data", severity: "error" });
+      return;
+    }
+
+    if (backendStatus !== "online") {
+      setSnackbar({ 
+        open: true, 
+        message: "❌ Backend is offline! Start the Python server first.", 
+        severity: "error" 
+      });
       return;
     }
 
     setProcessing(true);
     
     try {
-      // Detect pose on uploaded image
-      await poseRef.current.send({ image: uploadedImageRef.current });
+      console.log("🚀 Calling local FastAPI backend...");
       
-      // Wait a bit for pose detection
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Prepare FormData
+      const formData = new FormData();
+      formData.append("person_image", uploadedFile);
       
-      if (!landmarksRef.current) {
-        setSnackbar({ 
-          open: true, 
-          message: "❌ Pose not detected! Please upload a clear full-body photo showing your shoulders.", 
-          severity: "error" 
-        });
-        setProcessing(false);
-        return;
+      // Get garment image as blob
+      const garmentResponse = await fetch(selectedProduct.image);
+      const garmentBlob = await garmentResponse.blob();
+      formData.append("garment_image", garmentBlob, "garment.jpg");
+      formData.append("garment_description", selectedProduct.title || "clothing");
+      formData.append("category", "upper_body");
+      
+      console.log("📤 Sending request to:", `${BACKEND_URL}/api/try-on-base64`);
+      
+      // Call local backend
+      const response = await fetch(`${BACKEND_URL}/api/try-on-base64`, {
+        method: "POST",
+        body: formData,
+      });
+
+      console.log("📡 Response status:", response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Backend error: ${errorText}`);
       }
 
-      // Create canvas and overlay garment
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-      
-      // Set canvas size to match uploaded image
-      canvas.width = uploadedImageRef.current.width;
-      canvas.height = uploadedImageRef.current.height;
-      
-      // Draw uploaded image
-      ctx.drawImage(uploadedImageRef.current, 0, 0, canvas.width, canvas.height);
-      
-      // Overlay garment based on detected pose
-      const lm = landmarksRef.current;
-      const leftShoulder = lm[11], rightShoulder = lm[12];
-      const leftElbow = lm[13], rightElbow = lm[14];
-      const leftHip = lm[23], rightHip = lm[24];
-      
-      if (leftShoulder && rightShoulder && leftShoulder.visibility > 0.5 && rightShoulder.visibility > 0.5) {
-        const lShoulderX = leftShoulder.x * canvas.width;
-        const rShoulderX = rightShoulder.x * canvas.width;
-        const lShoulderY = leftShoulder.y * canvas.height;
-        const rShoulderY = rightShoulder.y * canvas.height;
-        const shoulderCenterX = (lShoulderX + rShoulderX) / 2;
-        const shoulderCenterY = (lShoulderY + rShoulderY) / 2;
-        
-        let shoulderWidth = Math.abs(lShoulderX - rShoulderX);
+      const data = await response.json();
+      console.log("📦 Response data:", data);
 
-        // Use elbow span if arms are wider than shoulders
-        if (leftElbow && rightElbow && leftElbow.visibility > 0.5 && rightElbow.visibility > 0.5) {
-          const elbowWidth = Math.abs(leftElbow.x * canvas.width - rightElbow.x * canvas.width);
-          shoulderWidth = Math.max(shoulderWidth, elbowWidth * 0.85);
-        }
-
-        // Torso length: shoulder to hip.  Fallback: 1.5x shoulder width.
-        let torsoLength = shoulderWidth * 1.5;
-        if (leftHip && rightHip && leftHip.visibility > 0.5 && rightHip.visibility > 0.5) {
-          const hipY = ((leftHip.y + rightHip.y) / 2) * canvas.height;
-          torsoLength = Math.abs(hipY - shoulderCenterY);
-        }
-
-        // Product images have ~35% whitespace padding around the actual garment.
-        // PADDING_FACTOR compensates: the drawn bounding box must be larger than
-        // the torso so that the visible garment inside it matches the torso.
-        const PADDING_FACTOR = 1.7;
-
-        // Target: visible garment height ≈ torso * garmentScale
-        // Drawn bounding box height = that * PADDING_FACTOR
-        const garmentHeight = torsoLength * garmentScale * PADDING_FACTOR;
-        const aspectRatio = productImgRef.current.width / productImgRef.current.height;
-        const garmentWidth = garmentHeight * aspectRatio;
-
-        // Position: centre the bounding box so the visible garment (which sits
-        // in the middle of the image) lands on the torso.
-        // Top edge = shoulder - small offset so neckline clears the neck.
-        const garmentY = shoulderCenterY - torsoLength * 0.12 + garmentVerticalOffset;
-        const garmentX = shoulderCenterX - garmentWidth / 2 + garmentHorizontalOffset;
-        
-        // Draw garment with some transparency for blend
-        ctx.globalAlpha = 0.9;
-        ctx.drawImage(productImgRef.current, garmentX, garmentY, garmentWidth, garmentHeight);
-        ctx.globalAlpha = 1.0;
-        
-        const result = canvas.toDataURL("image/png");
-        setGeneratedImage(result);
+      if (data.success && data.image) {
+        setGeneratedImage(data.image);
         setSnackbar({ 
           open: true, 
-          message: "✨ Try-on generated successfully!", 
+          message: "✨ AI Try-on generated successfully!", 
           severity: "success" 
         });
       } else {
-        setSnackbar({ 
-          open: true, 
-          message: "❌ Could not detect shoulders clearly. Please use a different photo.", 
-          severity: "error" 
-        });
+        throw new Error(data.error || "Unknown error");
       }
+      
     } catch (err) {
-      console.error("Try-on generation error:", err);
+      console.error("💥 Try-on generation error:", err);
       setSnackbar({ 
         open: true, 
-        message: `Error: ${err.message}`, 
+        message: `❌ Error: ${err.message}`, 
         severity: "error" 
       });
     } finally {
@@ -240,25 +258,46 @@ export default function UploadTryOn() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Please login first");
 
-      const { data: inserted, error: insertError } = await supabase
+      // Convert base64 to blob
+      const base64Response = await fetch(generatedImage);
+      const blob = await base64Response.blob();
+      
+      // Upload to Supabase Storage
+      const fileName = `${user.id}/${Date.now()}.png`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("tryon-images")
+        .upload(fileName, blob, {
+          contentType: "image/png",
+          cacheControl: "3600"
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from("tryon-images")
+        .getPublicUrl(fileName);
+
+      // Save to database
+      const { error: dbError } = await supabase
         .from("tryon_history")
         .insert({
           user_id: user.id,
-          product_id: selectedProduct.id,
+          image_url: publicUrl,
+          item_id: selectedProduct.title,
           product_name: selectedProduct.title,
-          product_image: selectedProduct.image,
-          image_data: generatedImage,
           product_price: selectedProduct.price,
-          is_saved: true
-        })
-        .select()
-        .single();
+          product_image: selectedProduct.image,
+          product_id: selectedProduct.id,
+          is_saved: true,
+          status: "completed"
+        });
 
-      if (insertError) throw insertError;
+      if (dbError) throw dbError;
 
       setSnackbar({ 
         open: true, 
-        message: "❤️ Saved to your collection!", 
+        message: "✅ Look saved to your profile!", 
         severity: "success" 
       });
       
@@ -281,6 +320,9 @@ export default function UploadTryOn() {
     setSelectedProduct(null);
     setGeneratedImage(null);
     setPoseDetected(false);
+    setGarmentScale(1.0);
+    setGarmentVerticalOffset(0);
+    setGarmentHorizontalOffset(0);
     uploadedImageRef.current = null;
     productImgRef.current = null;
   };
@@ -288,157 +330,170 @@ export default function UploadTryOn() {
   return (
     <Box sx={{ minHeight: "100vh", background: THEME.pageBg, pb: 4 }}>
       {/* HEADER */}
-      <Box sx={{ background: THEME.gradient, color: "white", py: 2, px: 2, display: "flex", alignItems: "center", gap: 2 }}>
-        <IconButton onClick={() => navigate("/dashboard")} sx={{ color: "white" }}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" fontWeight={700}>Upload Photo Try-On</Typography>
+      <Box sx={{ background: THEME.gradient, color: "white", py: 2, px: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <IconButton onClick={() => navigate("/dashboard")} sx={{ color: "white" }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>AI Virtual Try-On</Typography>
+        </Box>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          {/* Backend Status Indicator */}
+          <Box sx={{ 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 1, 
+            bgcolor: "rgba(255,255,255,0.2)", 
+            px: 2, 
+            py: 0.5, 
+            borderRadius: 2 
+          }}>
+            <Box sx={{ 
+              width: 8, 
+              height: 8, 
+              borderRadius: "50%", 
+              bgcolor: backendStatus === "online" ? "#4caf50" : backendStatus === "offline" ? "#ff9800" : "#999"
+            }} />
+            <Typography fontSize={13}>
+              Backend: {backendStatus === "online" ? "Online" : backendStatus === "offline" ? "Offline" : "Checking..."}
+            </Typography>
+          </Box>
+          <IconButton onClick={resetAll} sx={{ color: "white" }}>
+            <RestartAltIcon />
+          </IconButton>
+        </Box>
       </Box>
 
       {/* STEPPER */}
-      <Box sx={{ maxWidth: 1200, mx: "auto", px: 2, mt: 3 }}>
-        <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-          {steps.map((label) => (
+      <Box sx={{ maxWidth: 900, mx: "auto", mt: 3, px: 2 }}>
+        <Stepper activeStep={activeStep} alternativeLabel>
+          {steps.map((label, index) => (
             <Step key={label}>
-              <StepLabel>{label}</StepLabel>
+              <StepLabel 
+                StepIconComponent={() => (
+                  <Box 
+                    sx={{ 
+                      width: 32, 
+                      height: 32, 
+                      borderRadius: "50%", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      justifyContent: "center",
+                      bgcolor: index <= activeStep ? THEME.primary : "#ccc",
+                      color: "white",
+                      fontWeight: 700
+                    }}
+                  >
+                    {index < activeStep ? <CheckCircleIcon fontSize="small" /> : index + 1}
+                  </Box>
+                )}
+              >
+                {label}
+              </StepLabel>
             </Step>
           ))}
         </Stepper>
+      </Box>
 
+      <Box sx={{ maxWidth: 1400, mx: "auto", mt: 4, px: 2 }}>
         {/* STEP 1: UPLOAD PHOTO */}
         {activeStep === 0 && (
-          <Card elevation={3} sx={{ borderRadius: 3, p: 4 }}>
-            <Box sx={{ textAlign: "center" }}>
-              <CloudUploadIcon sx={{ fontSize: 80, color: THEME.primary, mb: 2 }} />
-              <Typography variant="h5" fontWeight={700} gutterBottom>
-                Upload Your Photo
-              </Typography>
-              <Typography color="text.secondary" sx={{ mb: 3 }}>
-                Choose a clear photo showing your upper body and shoulders for best results
-              </Typography>
-              
-              <input
-                accept="image/*"
-                style={{ display: 'none' }}
-                id="upload-photo"
-                type="file"
-                onChange={handleImageUpload}
+          <Box sx={{ textAlign: "center", py: 6 }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              📸 Upload Your Photo
+            </Typography>
+            <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: "auto" }}>
+              Upload a clear photo showing your upper body. Face the camera directly for best results.
+            </Typography>
+            <Button
+              variant="contained"
+              component="label"
+              size="large"
+              startIcon={<CloudUploadIcon />}
+              sx={{ 
+                bgcolor: THEME.primary, 
+                fontWeight: 600, 
+                px: 4, 
+                py: 1.5,
+                "&:hover": { bgcolor: "#5a4bc7" }
+              }}
+            >
+              Choose Photo
+              <input 
+                type="file" 
+                hidden 
+                accept="image/*" 
+                onChange={handleImageUpload} 
               />
-              <label htmlFor="upload-photo">
-                <Button
-                  variant="contained"
-                  component="span"
-                  size="large"
-                  startIcon={<CloudUploadIcon />}
-                  sx={{ 
-                    bgcolor: THEME.primary, 
-                    px: 4, 
-                    py: 1.5, 
-                    fontWeight: 600,
-                    "&:hover": { bgcolor: "#5a4bc7" }
-                  }}
-                >
-                  Choose Photo
-                </Button>
-              </label>
-
-              {uploadedImage && (
-                <Box sx={{ mt: 4 }}>
-                  <img 
-                    src={uploadedImage} 
-                    alt="Uploaded" 
-                    style={{ 
-                      maxWidth: "100%", 
-                      maxHeight: 400, 
-                      borderRadius: 12,
-                      boxShadow: "0 8px 24px rgba(0,0,0,0.15)"
-                    }} 
-                  />
-                </Box>
-              )}
-            </Box>
-          </Card>
+            </Button>
+          </Box>
         )}
 
         {/* STEP 2: SELECT CLOTH */}
         {activeStep === 1 && (
           <Box>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-              <Typography variant="h5" fontWeight={700}>
-                Select a Cloth
+              <Typography variant="h6" fontWeight={700}>
+                👕 Select a Cloth to Try On
               </Typography>
-              <Button
-                variant="outlined"
-                onClick={() => setActiveStep(0)}
-                sx={{ borderColor: THEME.primary, color: THEME.primary }}
+              <Button 
+                startIcon={<RestartAltIcon />} 
+                onClick={resetAll}
+                sx={{ color: THEME.primary }}
               >
-                Change Photo
+                Start Over
               </Button>
             </Box>
-
-            <Grid container spacing={3}>
-              {products.slice(0, 12).map((product) => (
-                <Grid item xs={6} sm={4} md={3} key={product.id}>
-                  <Card
+            
+            <Grid container spacing={2}>
+              {products.map((product) => (
+                <Grid item xs={6} sm={4} md={3} lg={2.4} key={product.id}>
+                  <Card 
+                    elevation={selectedProduct?.id === product.id ? 8 : 2}
                     onClick={() => handleProductSelect(product)}
-                    sx={{
+                    sx={{ 
+                      cursor: "pointer", 
                       borderRadius: 2,
-                      cursor: "pointer",
-                      border: selectedProduct?.id === product.id ? `3px solid ${THEME.primary}` : "1px solid #e0e0e0",
+                      border: selectedProduct?.id === product.id ? `3px solid ${THEME.primary}` : "3px solid transparent",
                       transition: "all 0.2s",
-                      "&:hover": {
-                        transform: "translateY(-4px)",
-                        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                      },
+                      "&:hover": { 
+                        transform: "translateY(-4px)", 
+                        boxShadow: 4 
+                      }
                     }}
                   >
-                    <Box
-                      sx={{
-                        height: 200,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        bgcolor: "#f5f5f5",
-                        p: 2,
-                        position: "relative"
-                      }}
-                    >
-                      <img
-                        src={product.image}
+                    <Box sx={{ 
+                      bgcolor: "#f9f9f9", 
+                      p: 2, 
+                      display: "flex", 
+                      alignItems: "center", 
+                      justifyContent: "center",
+                      height: 180
+                    }}>
+                      <img 
+                        src={product.image} 
                         alt={product.title}
-                        style={{
-                          maxHeight: "100%",
-                          maxWidth: "100%",
-                          objectFit: "contain",
+                        style={{ 
+                          maxWidth: "100%", 
+                          maxHeight: "100%", 
+                          objectFit: "contain" 
                         }}
+                        loading="lazy"
                       />
-                      {selectedProduct?.id === product.id && (
-                        <CheckCircleIcon 
-                          sx={{ 
-                            position: "absolute", 
-                            top: 8, 
-                            right: 8, 
-                            color: THEME.primary,
-                            fontSize: 32
-                          }} 
-                        />
-                      )}
                     </Box>
-                    <CardContent>
-                      <Typography
-                        fontSize={13}
-                        fontWeight={600}
-                        sx={{
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                          minHeight: 36
+                    <CardContent sx={{ p: 1.5 }}>
+                      <Typography 
+                        fontSize={12} 
+                        fontWeight={600} 
+                        sx={{ 
+                          overflow: "hidden", 
+                          textOverflow: "ellipsis", 
+                          whiteSpace: "nowrap" 
                         }}
                       >
                         {product.title}
                       </Typography>
-                      <Typography fontSize={16} fontWeight={700} color="primary" sx={{ mt: 1 }}>
+                      <Typography fontSize={14} fontWeight={700} color="primary">
                         {product.price}
                       </Typography>
                     </CardContent>
@@ -449,25 +504,28 @@ export default function UploadTryOn() {
           </Box>
         )}
 
-        {/* STEP 3: GENERATE & VIEW RESULT */}
+        {/* STEP 3: TRY ON RESULT */}
         {activeStep === 2 && (
           <Box>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-              <Typography variant="h5" fontWeight={700}>
-                Try-On Result
+              <Typography variant="h6" fontWeight={700}>
+                ✨ Try-On Result
               </Typography>
-              <Box sx={{ display: "flex", gap: 2 }}>
+              <Box sx={{ display: "flex", gap: 1 }}>
                 <IconButton 
-                  onClick={() => setShowSettings(!showSettings)} 
-                  sx={{ bgcolor: "white", boxShadow: 2 }}
+                  onClick={() => setShowSettings(!showSettings)}
+                  sx={{ 
+                    bgcolor: showSettings ? THEME.primary : "white", 
+                    color: showSettings ? "white" : THEME.primary,
+                    "&:hover": { bgcolor: showSettings ? "#5a4bc7" : "#f0f0f0" }
+                  }}
                 >
                   <TuneIcon />
                 </IconButton>
-                <Button
-                  variant="outlined"
+                <Button 
+                  startIcon={<RestartAltIcon />} 
                   onClick={resetAll}
-                  startIcon={<RestartAltIcon />}
-                  sx={{ borderColor: THEME.primary, color: THEME.primary }}
+                  sx={{ color: THEME.primary }}
                 >
                   Start Over
                 </Button>
@@ -478,54 +536,44 @@ export default function UploadTryOn() {
             {showSettings && (
               <Paper elevation={3} sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                 <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                  🎚️ Adjust Garment Fit
+                  🎚️ Adjust Garment Fit (Local Overlay Only)
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                  Note: These settings don't affect AI backend results
                 </Typography>
                 <Box sx={{ mt: 2 }}>
                   <Typography variant="caption">Size: {garmentScale.toFixed(2)}x</Typography>
                   <Slider 
                     value={garmentScale} 
                     onChange={(e, v) => setGarmentScale(v)} 
-                    min={0.7} 
-                    max={1.4} 
+                    min={0.6} 
+                    max={1.5} 
                     step={0.05} 
                     sx={{ color: THEME.primary }} 
                   />
                 </Box>
                 <Box sx={{ mt: 2 }}>
-                  <Typography variant="caption">Vertical: {garmentVerticalOffset}px</Typography>
+                  <Typography variant="caption">Vertical Position: {garmentVerticalOffset}px</Typography>
                   <Slider 
                     value={garmentVerticalOffset} 
                     onChange={(e, v) => setGarmentVerticalOffset(v)} 
-                    min={-80} 
-                    max={80} 
+                    min={-120} 
+                    max={120} 
                     step={2} 
                     sx={{ color: THEME.primary }} 
                   />
                 </Box>
                 <Box sx={{ mt: 2 }}>
-                  <Typography variant="caption">Horizontal: {garmentHorizontalOffset}px</Typography>
+                  <Typography variant="caption">Horizontal Position: {garmentHorizontalOffset}px</Typography>
                   <Slider 
                     value={garmentHorizontalOffset} 
                     onChange={(e, v) => setGarmentHorizontalOffset(v)} 
-                    min={-60} 
-                    max={60} 
+                    min={-100} 
+                    max={100} 
                     step={2} 
                     sx={{ color: THEME.primary }} 
                   />
                 </Box>
-                <Button 
-                  fullWidth 
-                  size="small" 
-                  onClick={() => { 
-                    setGarmentScale(1.0); 
-                    setGarmentVerticalOffset(0); 
-                    setGarmentHorizontalOffset(0);
-                    if (generatedImage) generateTryOn();
-                  }} 
-                  sx={{ mt: 2 }}
-                >
-                  Reset & Regenerate
-                </Button>
               </Paper>
             )}
 
@@ -593,7 +641,7 @@ export default function UploadTryOn() {
                       <img 
                         src={generatedImage} 
                         alt="Result" 
-                        style={{ maxWidth: "100%", maxHeight: 280, objectFit: "contain" }} 
+                        style={{ maxWidth: "100%", maxHeight: 375, objectFit: "contain" }} 
                       />
                     )}
                   </Box>
@@ -604,7 +652,7 @@ export default function UploadTryOn() {
                         variant="contained"
                         size="large"
                         onClick={generateTryOn}
-                        disabled={processing}
+                        disabled={processing || backendStatus !== "online"}
                         startIcon={processing ? <CircularProgress size={20} color="inherit" /> : null}
                         sx={{ 
                           bgcolor: THEME.primary, 
@@ -613,36 +661,37 @@ export default function UploadTryOn() {
                           "&:hover": { bgcolor: "#5a4bc7" }
                         }}
                       >
-                        {processing ? "Generating..." : "Generate Try-On"}
+                        {processing ? "Generating..." : backendStatus !== "online" ? "Backend Offline" : "✨ Generate AI Try-On"}
                       </Button>
                     ) : (
-                      <Button
-                        fullWidth
-                        variant="contained"
-                        size="large"
-                        startIcon={savingLook ? <CircularProgress size={20} color="inherit" /> : <FavoriteIcon />}
-                        onClick={saveLook}
-                        disabled={savingLook}
-                        sx={{ 
-                          bgcolor: "#e91e63", 
-                          fontWeight: 600,
-                          py: 0.9,
-                          "&:hover": { bgcolor: "#c2185b" }
-                        }}
-                      >
-                        {savingLook ? "Saving..." : "Save to Collection"}
-                      </Button>
-                    )}
-                    {generatedImage && (
-                      <Button
-                        fullWidth
-                        variant="outlined"
-                        onClick={generateTryOn}
-                        disabled={processing}
-                        sx={{ borderColor: THEME.primary, color: THEME.primary }}
-                      >
-                        Regenerate
-                      </Button>
+                      <>
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          size="large"
+                          startIcon={savingLook ? <CircularProgress size={20} color="inherit" /> : <FavoriteIcon />}
+                          onClick={saveLook}
+                          disabled={savingLook}
+                          sx={{ 
+                            bgcolor: "#e91e63", 
+                            fontWeight: 600,
+                            py: 0.9,
+                            "&:hover": { bgcolor: "#c2185b" }
+                          }}
+                        >
+                          {savingLook ? "Saving..." : "Save to Collection"}
+                        </Button>
+                        <Button
+                          fullWidth
+                          variant="outlined"
+                          onClick={generateTryOn}
+                          disabled={processing || backendStatus !== "online"}
+                          startIcon={processing ? <CircularProgress size={20} color="inherit" /> : null}
+                          sx={{ borderColor: THEME.primary, color: THEME.primary }}
+                        >
+                          {processing ? "Regenerating..." : "Regenerate"}
+                        </Button>
+                      </>
                     )}
                   </Box>
                 </Card>
