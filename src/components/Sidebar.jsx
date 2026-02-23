@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { Box, List, ListItem, ListItemIcon, ListItemText, Avatar, Typography, Divider } from "@mui/material";
 import HomeIcon from "@mui/icons-material/Home";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
@@ -8,6 +9,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import LogoutIcon from "@mui/icons-material/Logout";
 import CheckroomIcon from "@mui/icons-material/Checkroom";
 import RecommendIcon from "@mui/icons-material/Recommend";
+import { supabase } from "../lib/supabaseClient";
 
 const THEME = {
   primary: "#6C5CE7",
@@ -15,6 +17,8 @@ const THEME = {
 };
 
 export default function Sidebar({ userName, activeView, onViewChange }) {
+  const navigate = useNavigate();
+
   const menuItems = [
     { id: "overview", label: "Home", icon: <HomeIcon /> },
     { id: "recommendations", label: "Recommendations", icon: <RecommendIcon /> },
@@ -24,6 +28,33 @@ export default function Sidebar({ userName, activeView, onViewChange }) {
     { id: "history", label: "History", icon: <HistoryIcon /> },
     { id: "profile", label: "Profile", icon: <PersonIcon /> },
   ];
+
+  const handleLogout = async () => {
+    try {
+      console.log("🚪 Logging out...");
+      
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error("❌ Logout error:", error);
+        alert("Failed to logout. Please try again.");
+        return;
+      }
+
+      console.log("✅ Successfully logged out");
+      
+      // Clear any local storage
+      localStorage.clear();
+      
+      // Redirect to login page
+      navigate("/login", { replace: true });
+      
+    } catch (err) {
+      console.error("💥 Unexpected logout error:", err);
+      alert("An error occurred during logout.");
+    }
+  };
 
   return (
     <Box
@@ -109,10 +140,7 @@ export default function Sidebar({ userName, activeView, onViewChange }) {
       <Box sx={{ p: 2 }}>
         <ListItem
           button
-          onClick={() => {
-            // Add your logout logic here
-            console.log("Logout clicked");
-          }}
+          onClick={handleLogout}
           sx={{
             borderRadius: 2,
             border: "1px solid #e0e0e0",

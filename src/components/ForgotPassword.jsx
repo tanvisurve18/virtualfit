@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Box, TextField, Button, Typography, Paper } from "@mui/material";
+import { Box, TextField, Button, Typography, Paper, CircularProgress, Alert } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
@@ -8,26 +8,88 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showManualInstructions, setShowManualInstructions] = useState(false);
 
   const handleReset = async () => {
     setStatus("");
     setErrorMessage("");
+    setShowManualInstructions(false);
 
+    // Validate email
     if (!email) {
       setErrorMessage("Please enter your email.");
       return;
     }
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: "http://localhost:5173/reset-password",
-    });
-
-    if (error) {
-      setErrorMessage(error.message);
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setErrorMessage("Please enter a valid email address.");
       return;
     }
 
-    setStatus("Password reset link sent! Check your email.");
+    setLoading(true);
+
+    try {
+      console.log("🔑 Attempting password reset for:", email);
+      
+      const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      console.log("Reset response:", { data, error });
+
+      if (error) {
+        console.error("❌ Reset error:", error);
+        
+        // Check if it's an email sending error
+        if (error.message.includes("Error sending") || 
+            error.message.includes("AuthApiError") ||
+            error.message.includes("SMTP") ||
+            error.message.includes("email service")) {
+          
+          setErrorMessage("Email service is currently unavailable. Please contact support or try again later.");
+          setShowManualInstructions(true);
+          
+        } else if (error.message.includes("Email not confirmed")) {
+          setErrorMessage("Please verify your email address first. Check your inbox for the verification link.");
+          
+        } else if (error.message.includes("Email rate limit")) {
+          setErrorMessage("Too many requests. Please wait a few minutes before trying again.");
+          
+        } else if (error.message.includes("User not found")) {
+          // For security, show success message even if user doesn't exist
+          setStatus("If an account exists with this email, you will receive a password reset link.");
+          
+        } else {
+          setErrorMessage(error.message || "Failed to send reset email. Please try again.");
+          setShowManualInstructions(true);
+        }
+        return;
+      }
+
+      console.log("✅ Reset email sent successfully");
+      setStatus("Password reset link sent! Check your email inbox (and spam folder).");
+      
+      // Clear email field after successful send
+      setTimeout(() => {
+        setEmail("");
+      }, 2000);
+
+    } catch (err) {
+      console.error("💥 Unexpected error:", err);
+      setErrorMessage("An unexpected error occurred. Email service may be unavailable.");
+      setShowManualInstructions(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !loading) {
+      handleReset();
+    }
   };
 
   return (
@@ -67,7 +129,8 @@ export default function ForgotPassword() {
         elevation={0}
         sx={{ 
           p: 5, 
-          width: { xs: "100%", sm: "440px" },
+          width: { xs: "100%", sm: "500px" },
+          maxWidth: "95%",
           borderRadius: "24px",
           background: "rgba(255, 255, 255, 0.95)",
           backdropFilter: "blur(20px)",
@@ -122,8 +185,8 @@ export default function ForgotPassword() {
             background: "rgba(239, 68, 68, 0.08)",
             border: "1px solid rgba(239, 68, 68, 0.2)",
           }}>
-            <Typography sx={{ color: "#dc2626", fontSize: "14px", textAlign: "center" }}>
-              {errorMessage}
+            <Typography sx={{ color: "#dc2626", fontSize: "14px", textAlign: "center", fontWeight: 500 }}>
+              ❌ {errorMessage}
             </Typography>
           </Box>
         )}
@@ -136,27 +199,46 @@ export default function ForgotPassword() {
             background: "rgba(34, 197, 94, 0.08)",
             border: "1px solid rgba(34, 197, 94, 0.2)",
           }}>
-            <Typography sx={{ color: "#16a34a", fontSize: "14px", textAlign: "center" }}>
+            <Typography sx={{ color: "#16a34a", fontSize: "14px", textAlign: "center", fontWeight: 500 }}>
               ✓ {status}
             </Typography>
           </Box>
         )}
 
+        {showManualInstructions && (
+          <Alert severity="info" sx={{ mb: 3, borderRadius: "12px" }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+              Email Service Unavailable
+            </Typography>
+            <Typography variant="body2" sx={{ fontSize: "13px", mb: 1 }}>
+              Our email service is currently experiencing issues. To reset your password:
+            </Typography>
+            <Typography variant="body2" sx={{ fontSize: "13px", pl: 2 }}>
+              1. Contact support with your email: <strong>{email}</strong><br/>
+              2. Or try again in a few minutes
+            </Typography>
+          </Alert>
+        )}
+
         <TextField
           fullWidth
           label="Email Address"
+          type="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value.trim())}
+          onKeyPress={handleKeyPress}
+          disabled={loading}
+          placeholder="your.email@example.com"
           sx={{ 
             mb: 3,
             "& .MuiOutlinedInput-root": {
               borderRadius: "12px",
               background: "#fafafa",
               "&:hover fieldset": {
-                borderColor: "#ff6b9d",
+                borderColor: "#7c3aed",
               },
               "&.Mui-focused fieldset": {
-                borderColor: "#ff6b9d",
+                borderColor: "#7c3aed",
               }
             }
           }}
@@ -165,6 +247,7 @@ export default function ForgotPassword() {
         <Button
           fullWidth
           variant="contained"
+          disabled={loading || !email}
           sx={{ 
             height: "52px",
             background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)",
@@ -176,11 +259,23 @@ export default function ForgotPassword() {
             "&:hover": {
               background: "linear-gradient(135deg, #6d28d9 0%, #9333ea 100%)",
               boxShadow: "0 12px 32px rgba(124, 58, 237, 0.4)",
+            },
+            "&:disabled": {
+              background: "#e0e0e0",
+              color: "#9e9e9e",
+              boxShadow: "none",
             }
           }}
           onClick={handleReset}
         >
-          Send Reset Link
+          {loading ? (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <CircularProgress size={20} sx={{ color: "white" }} />
+              <span>Sending...</span>
+            </Box>
+          ) : (
+            "Send Reset Link"
+          )}
         </Button>
 
         <Typography
@@ -199,6 +294,19 @@ export default function ForgotPassword() {
         >
           ← Back to Sign In
         </Typography>
+
+        {/* Help text */}
+        <Box sx={{ 
+          mt: 3, 
+          p: 2, 
+          borderRadius: "12px", 
+          background: "rgba(124, 58, 237, 0.05)",
+          border: "1px solid rgba(124, 58, 237, 0.1)"
+        }}>
+          <Typography sx={{ fontSize: "13px", color: "#7d6a8e", textAlign: "center" }}>
+            💡 <strong>Note:</strong> If you continue to experience issues, please contact our support team.
+          </Typography>
+        </Box>
       </Paper>
     </Box>
   );

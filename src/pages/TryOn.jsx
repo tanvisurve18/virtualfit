@@ -190,8 +190,15 @@ export default function TryOn() {
         return;
       }
 
-      const base64Response = await fetch(capturedImage);
-      const blob = await base64Response.blob();
+      // Convert base64 to blob directly (fixes abort signal error)
+      const base64Data = capturedImage.split(",")[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: "image/png" });
       
       const fileName = `${user.id}/${Date.now()}.png`;
       const { data: uploadData, error: uploadError } = await supabase.storage
