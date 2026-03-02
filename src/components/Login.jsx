@@ -22,55 +22,67 @@ export default function Login() {
   const handleLogin = async () => {
     setErrorMessage("");
 
-    let loginEmail = identifier;
-
-    if (!identifier.includes("@")) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("email, name")
-        .eq("phone", identifier)
-        .single();
-
-      if (!profile) {
-        setErrorMessage("Invalid email or password.");
-        return;
-      }
-
-      loginEmail = profile.email;
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password,
-    });
-
-    if (error) {
-      if (error.message.includes("Email not confirmed")) {
-        setErrorMessage("Please verify your email before logging in.");
-      } else {
-        setErrorMessage("Invalid email or password.");
-      }
+    // Validate inputs
+    if (!identifier || !password) {
+      setErrorMessage("Please enter both email and password.");
       return;
     }
 
-    const { data: userProfile } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("email", loginEmail)
-      .single();
-
-    localStorage.setItem("vf_token", data.session.access_token);
-    localStorage.setItem("vf_user", JSON.stringify(userProfile));
-
-    if (remember) {
-      localStorage.setItem("rememberIdentifier", identifier);
-      localStorage.setItem("rememberPassword", password);
-    } else {
-      localStorage.removeItem("rememberIdentifier");
-      localStorage.removeItem("rememberPassword");
+    // Only email login supported on frontend (no admin SDK)
+    if (!identifier.includes("@")) {
+      setErrorMessage("Please enter a valid email address.");
+      return;
     }
 
-    navigate("/dashboard");
+    const loginEmail = identifier;
+
+    // Sign in with email and password
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password,
+      });
+
+      if (error) {
+        console.error("Login error:", error);
+        
+        if (error.message.includes("Email not confirmed")) {
+          setErrorMessage("Please verify your email before logging in.");
+        } else if (error.message.includes("Invalid login credentials")) {
+          setErrorMessage("Invalid email or password.");
+        } else {
+          setErrorMessage(error.message || "Login failed. Please try again.");
+        }
+        return;
+      }
+
+      // Get user profile
+      const { data: userProfile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", data.user.id)
+        .single();
+
+      // Store session
+      localStorage.setItem("vf_token", data.session.access_token);
+      if (userProfile) {
+        localStorage.setItem("vf_user", JSON.stringify(userProfile));
+      }
+
+      // Remember credentials if checkbox is checked
+      if (remember) {
+        localStorage.setItem("rememberIdentifier", identifier);
+        localStorage.setItem("rememberPassword", password);
+      } else {
+        localStorage.removeItem("rememberIdentifier");
+        localStorage.removeItem("rememberPassword");
+      }
+
+      navigate("/dashboard");
+    } catch (err) {
+      console.error("Unexpected login error:", err);
+      setErrorMessage("An unexpected error occurred. Please try again.");
+    }
   };
 
   const handleForgotPassword = (e) => {
@@ -268,6 +280,7 @@ export default function Login() {
             }}
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
           />
 
           <TextField
@@ -289,6 +302,7 @@ export default function Login() {
             }}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">

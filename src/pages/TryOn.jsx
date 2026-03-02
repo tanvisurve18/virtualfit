@@ -274,7 +274,7 @@ export default function TryOn() {
               <img 
                 src={productData.image} 
                 alt={productData.name}
-                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "cover" }}
               />
             </Box>
             <CardContent>
@@ -311,7 +311,7 @@ export default function TryOn() {
                 position: "relative", 
                 bgcolor: "#000", 
                 width: "100%",
-                aspectRatio: "4/3", 
+                aspectRatio: cameraOn ? "16/9" : "auto",
                 overflow: "hidden"
               }}>
                 {!cameraOn && !capturedImage && (
@@ -353,7 +353,7 @@ export default function TryOn() {
                     style={{ 
                       width: "100%", 
                       height: "100%", 
-                      objectFit: "contain" 
+                      objectFit: "cover" 
                     }}
                   />
                 )}

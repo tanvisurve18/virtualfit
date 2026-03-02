@@ -88,54 +88,89 @@ export default function Signup() {
     setLoading(true);
 
     try {
+      console.log("🔐 Starting signup process...");
+      
+      // Sign up user
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.trim(),
         password,
         options: {
           data: {
-            full_name: fullName,
-            phone: phone || null,
-          },
-          emailRedirectTo: "http://localhost:5173/login"
+            full_name: fullName.trim(),
+            phone: phone.trim() || null,
+          }
         }
       });
 
       if (error) {
+        console.error("❌ Signup error:", error);
         throw error;
       }
 
-      const userId = data?.user?.id || data?.id || null;
+      console.log("✅ Signup successful:", data);
 
+      const userId = data?.user?.id;
+
+      // Create profile (only if signup was successful and we have a user ID)
       if (userId) {
-        const profileInsert = await supabase.from("profiles").upsert(
-          {
+        console.log("📝 Creating profile for user:", userId);
+        
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .insert({
             id: userId,
-            email: email.trim(),
+            full_name: fullName.trim(),
             phone: phone.trim() || null,
-            name: fullName.trim(),
-            created_at: new Date().toISOString(),
-          },
-          { returning: "minimal" }
-        );
+          });
 
-        if (profileInsert.error) {
-          console.warn("Profile insert error:", profileInsert.error);
+        if (profileError) {
+          console.warn("⚠️ Profile creation warning:", profileError);
+          // Don't fail signup if profile creation fails
+        } else {
+          console.log("✅ Profile created successfully");
         }
       }
 
-      showSnack(
-        "Account created successfully! Please verify your email before logging in.",
-        "success"
-      );
+      // Check if email confirmation is required
+      if (data.user && !data.session) {
+        // Email confirmation is enabled
+        showSnack(
+          "Account created! Please check your email to confirm your account before logging in.",
+          "success"
+        );
+      } else if (data.session) {
+        // Auto-logged in (email confirmation disabled)
+        showSnack(
+          "Account created successfully! Redirecting to dashboard...",
+          "success"
+        );
+        
+        setTimeout(() => {
+          setLoading(false);
+          navigate("/dashboard");
+        }, 1500);
+        return;
+      }
 
       setTimeout(() => {
         setLoading(false);
         navigate("/login");
-      }, 1600);
+      }, 2000);
+
     } catch (err) {
-      console.error(err);
-      const msg = err?.message || "Signup failed — try again.";
-      showSnack(msg, "error");
+      console.error("Signup error:", err);
+      
+      let errorMessage = "Signup failed. Please try again.";
+      
+      if (err.message.includes("already registered")) {
+        errorMessage = "This email is already registered. Please login instead.";
+      } else if (err.message.includes("fetch")) {
+        errorMessage = "Connection failed. Please check your internet connection and Supabase configuration.";
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      showSnack(errorMessage, "error");
       setLoading(false);
     }
   }

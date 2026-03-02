@@ -871,6 +871,58 @@ export default function Dashboard() {
                           {item.product_price}
                         </Typography>
                       </CardContent>
+                      <Box sx={{ px: { xs: 2, md: 2.5 }, pb: { xs: 2, md: 2.5 }, display: "flex", flexDirection: "column", gap: { xs: 1, md: 1.2 } }}>
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          onClick={() => navigate("/tryon", {
+                            state: {
+                              garment_image: item.product_image,
+                              product_name: item.product_name,
+                              product_price: item.product_price,
+                              product_url: item.product_url,
+                              product_id: item.product_id
+                            }
+                          })}
+                          sx={{
+                            fontWeight: 700,
+                            bgcolor: THEME.primary,
+                            fontSize: { xs: 13, md: 14 },
+                            py: { xs: 1.1, md: 1.4 },
+                            borderRadius: { xs: 1.5, md: 2 },
+                            textTransform: "none",
+                            boxShadow: "0 4px 12px rgba(108, 92, 231, 0.3)",
+                            "&:hover": {
+                              bgcolor: "#5a4bc7",
+                              boxShadow: "0 6px 16px rgba(108, 92, 231, 0.4)",
+                            }
+                          }}
+                        >
+                          Try On
+                        </Button>
+                        {item.product_url && (
+                          <Button
+                            fullWidth
+                            variant="outlined"
+                            onClick={() => window.open(item.product_url, "_blank")}
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: { xs: 13, md: 14 },
+                              py: { xs: 1.1, md: 1.4 },
+                              borderRadius: { xs: 1.5, md: 2 },
+                              textTransform: "none",
+                              borderColor: THEME.primary,
+                              color: THEME.primary,
+                              "&:hover": {
+                                borderColor: "#5a4bc7",
+                                bgcolor: "rgba(108, 92, 231, 0.04)",
+                              }
+                            }}
+                          >
+                            Buy on H&M
+                          </Button>
+                        )}
+                      </Box>
                     </Card>
                   ))}
                 </Box>

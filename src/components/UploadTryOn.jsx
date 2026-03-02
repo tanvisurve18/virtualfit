@@ -215,6 +215,7 @@ export default function UploadTryOn() {
       const response = await fetch(`${BACKEND_URL}/api/try-on-base64`, {
         method: "POST",
         body: formData,
+        signal: AbortSignal.timeout(660000),
       });
 
       console.log("📡 Response status:", response.status);
@@ -258,9 +259,15 @@ export default function UploadTryOn() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Please login first");
 
-      // Convert base64 to blob
-      const base64Response = await fetch(generatedImage);
-      const blob = await base64Response.blob();
+      // Convert base64 to blob directly (avoids abort signal error)
+      const base64Data = generatedImage.split(',')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
       
       // Upload to Supabase Storage
       const fileName = `${user.id}/${Date.now()}.png`;
@@ -641,7 +648,7 @@ export default function UploadTryOn() {
                       <img 
                         src={generatedImage} 
                         alt="Result" 
-                        style={{ maxWidth: "100%", maxHeight: 375, objectFit: "contain" }} 
+                        style={{ width: "100%", height: "auto", objectFit: "contain", display: "block" }} 
                       />
                     )}
                   </Box>

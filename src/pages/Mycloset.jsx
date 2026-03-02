@@ -394,8 +394,39 @@ export default function MyCloset() {
             </Typography>
           )}
 
+          {/* Try On button */}
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={() => navigate("/tryon", {
+              state: {
+                garment_image: item.productImage,
+                product_name: item.productName,
+                product_price: item.price,
+                product_url: item.productUrl,
+                product_id: item._raw_id
+              }
+            })}
+            sx={{
+              fontWeight: 700,
+              bgcolor: THEME.primary,
+              fontSize: 13,
+              py: 1.2,
+              borderRadius: 2,
+              textTransform: "none",
+              mt: 1.2,
+              boxShadow: "0 4px 12px rgba(108, 92, 231, 0.3)",
+              "&:hover": {
+                bgcolor: "#5a4bc7",
+                boxShadow: "0 6px 16px rgba(108, 92, 231, 0.4)",
+              }
+            }}
+          >
+            Try On
+          </Button>
+
           {/* action buttons row */}
-          <Box sx={{ display: "flex", gap: 0.7, mt: 1.2, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", gap: 0.7, mt: 0.8, flexWrap: "wrap" }}>
             <IconButton size="small" onClick={() => handleDownload(item)}
               title="Download"
               sx={{ p: 0.6, border: "1px solid #e0e0e0", borderRadius: 1.5, "&:hover": { bgcolor: "#f5f5f5" } }}>

@@ -100,14 +100,14 @@ export default function Sidebar({ userName, activeView, onViewChange }) {
       <Divider />
 
       {/* Navigation Menu */}
-      <List sx={{ flexGrow: 1, py: 2 }}>
+      <List sx={{ flexGrow: 2, py: 2 }}>
         {menuItems.map((item) => (
           <ListItem
             key={item.id}
             button
             onClick={() => onViewChange(item.id)}
             sx={{
-              mx: 1.5,
+              mx: 0.2,
               mb: 0.5,
               borderRadius: 2,
               bgcolor: activeView === item.id ? THEME.primaryLight : "transparent",
